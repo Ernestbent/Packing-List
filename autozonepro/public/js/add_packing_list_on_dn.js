@@ -1,0 +1,11 @@
+frappe.ui.form.on('Delivery Note', {
+    refresh: function(frm) {
+        if (frm.doc.docstatus === 1) {
+            frm.add_custom_button(__('Packing List'), function() {
+                frappe.new_doc('Packing List', {
+                    delivery_note: frm.doc.name
+                });
+            }, __('Create'));
+        }
+    }
+});

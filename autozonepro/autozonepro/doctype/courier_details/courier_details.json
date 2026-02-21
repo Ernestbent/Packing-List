@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-02-14 13:49:43.646349",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "driver_details_section",
+  "first_name",
+  "surname",
+  "full_name",
+  "column_break_izlx",
+  "tel_no",
+  "vehicle_no",
+  "shipping_costs_section",
+  "table_ncgt",
+  "connections_tab"
+ ],
+ "fields": [
+  {
+   "fieldname": "driver_details_section",
+   "fieldtype": "Section Break",
+   "label": "Driver Details"
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "label": "First Name"
+  },
+  {
+   "fieldname": "surname",
+   "fieldtype": "Data",
+   "label": "Surname"
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "label": "Full Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_izlx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tel_no",
+   "fieldtype": "Phone",
+   "label": "Tel No"
+  },
+  {
+   "fieldname": "vehicle_no",
+   "fieldtype": "Data",
+   "label": "Vehicle No"
+  },
+  {
+   "fieldname": "shipping_costs_section",
+   "fieldtype": "Section Break",
+   "label": "Shipping Costs"
+  },
+  {
+   "fieldname": "table_ncgt",
+   "fieldtype": "Table",
+   "options": "Box Summary Table"
+  },
+  {
+   "fieldname": "connections_tab",
+   "fieldtype": "Tab Break",
+   "label": "Connections"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-14 14:08:25.102491",
+ "modified_by": "Administrator",
+ "module": "Autozonepro",
+ "name": "Courier Details",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
