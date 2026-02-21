@@ -47,15 +47,19 @@ doctype_js = {
     "Sales Order": [
         "public/js/hide_sales_order_butttons.js",
         "public/js/update_delivery_note.js",
-        "public/js/verify_packing_list.js"
+        # "public/js/verify_packing_list.js",
+        "public/js/get_courier_details.js",
     ],
     "Packing List":[
         "public/js/packing_list_box-entry.js",
-        "public/js/js/packing_list_logic.js",
+        # "public/js/js/packing_list_logic.js",
         "public/js/enter_box_details.js",
     ],
     "Delivery Note":[
         "public/js/add_packing_list_on_dn.js"
+    ],
+    "Pick List":[
+        "public/js/add_packing_list_on_pl.js"
     ]
 }
 

@@ -4,13 +4,14 @@ frappe.ui.form.on('Packing List', {
         update_totals(frm);
     },
 
-    delivery_note(frm) {
-        if (frm.doc.delivery_note) {
-            load_dn_items(frm);
+    custom_pick_list(frm) {
+        if (frm.doc.custom_pick_list) {
+            load_pl_items(frm);
         } else {
             frm.clear_table('table_ttya');
             frm.clear_table('table_hqkk');
             frm.clear_table('custom_box_summary');
+            frm.set_value('custom_customer', '');
             frm.refresh_fields();
         }
         show_pack_button(frm);
@@ -47,7 +48,7 @@ frappe.ui.form.on('Packaging Details', {
 function show_pack_button(frm) {
     frm.remove_custom_button(__('Pack Items'));
     
-    const should_show = frm.doc.delivery_note && 
+    const should_show = frm.doc.custom_pick_list && 
                        frm.doc.docstatus === 0 && 
                        frm.doc.table_ttya && 
                        frm.doc.table_ttya.length > 0;
@@ -59,39 +60,40 @@ function show_pack_button(frm) {
     }
 }
 
-function load_dn_items(frm) {
-    if (!frm.doc.delivery_note) return;
+function load_pl_items(frm) {
+    if (!frm.doc.custom_pick_list) return;
     
-    frappe.call({
-        method: 'frappe.client.get',
-        args: { 
-            doctype: 'Delivery Note', 
-            name: frm.doc.delivery_note 
-        },
-        callback(r) {
-            if (!r.message) return;
-            
-            const dn = r.message;
-            
-            if (!dn.items || !dn.items.length) {
-                frappe.msgprint(__('No items in the selected Delivery Note.'));
-                return;
-            }
-            
-            frm.clear_table('table_ttya');
-            
-            dn.items.forEach(itm => {
-                const row = frm.add_child('table_ttya');
-                row.item = itm.item_code;
-                row.item_name = itm.item_name;
-                row.qty = itm.qty;
-                row.uom = itm.uom;
-                row.remaining_qty = itm.qty;
-            });
-            
-            frm.refresh_field('table_ttya');
-            show_pack_button(frm);
+    frappe.db.get_doc('Pick List', frm.doc.custom_pick_list)
+    .then(function(pl) {
+        if (!pl.locations || !pl.locations.length) {
+            frappe.msgprint(__('No items found in this Pick List. Please click "Get Item Locations" on the Pick List first.'));
+            return;
         }
+
+        frm.clear_table('table_ttya');
+
+        pl.locations.forEach(function(loc) {
+            const row = frm.add_child('table_ttya');
+            row.item = loc.item_code;
+            row.item_name = loc.item_name;
+            row.qty = loc.qty;
+            row.uom = loc.uom;
+        });
+
+        frm.refresh_field('table_ttya');
+
+        // Set customer if Pick List has one
+        if (pl.customer) {
+            frm.set_value('custom_customer', pl.customer);
+        }
+
+        // Set sales order from first location row if available
+        if (pl.locations[0] && pl.locations[0].sales_order) {
+            frm.set_value('custom_sales_order', pl.locations[0].sales_order);
+        }
+
+        show_pack_button(frm);
+        update_totals(frm);
     });
 }
 
@@ -138,28 +140,22 @@ function open_pack_dialog(frm) {
                     indicator: 'green' 
                 });
                 
-                // Reset for next box
                 const next_box = values.box_number + 1;
                 d.set_value('box_number', next_box);
                 d.set_value('box_weight', 0);
                 
-                // Clear search
                 const searchInput = d.fields_dict.search_container.$wrapper.find('#item-search-input');
                 searchInput.val('');
                 
-                // Clear all checkboxes and quantity inputs
                 clear_all_selections(d);
-                
-                // Re-render items with updated quantities
                 render_items_with_checkboxes(frm, d);
                 render_search_box(frm, d);
                 
-                // Check if all items are packed
                 const missing = get_missing_items(frm);
                 if (missing.length === 0) {
                     frappe.msgprint({
                         title: __('All Items Packed!'),
-                        message: __('All items from the Delivery Note have been packed. You can close the dialog now.'),
+                        message: __('All items from the Pick List have been packed. You can close the dialog now.'),
                         indicator: 'green'
                     });
                 }
@@ -178,37 +174,13 @@ function open_pack_dialog(frm) {
 function render_search_box(frm, dialog) {
     let html = `
         <style>
-            .search-wrapper {
-                position: relative;
-                margin-bottom: 15px;
-            }
-            .search-input {
-                width: 100%;
-                padding: 10px 40px 10px 15px;
-                border: 1px solid #d1d8dd;
-                border-radius: 4px;
-                font-size: 14px;
-            }
-            .search-input:focus {
-                border-color: #2490ef;
-                outline: none;
-                box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.1);
-            }
-            .search-icon {
-                position: absolute;
-                right: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                color: #888;
-                pointer-events: none;
-            }
+            .search-wrapper { position: relative; margin-bottom: 15px; }
+            .search-input { width: 100%; padding: 10px 40px 10px 15px; border: 1px solid #d1d8dd; border-radius: 4px; font-size: 14px; }
+            .search-input:focus { border-color: #2490ef; outline: none; box-shadow: 0 0 0 2px rgba(36,144,239,0.1); }
+            .search-icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #888; pointer-events: none; }
         </style>
         <div class="search-wrapper">
-            <input type="text" 
-                   id="item-search-input" 
-                   class="search-input" 
-                   placeholder="Search items by name or code..."
-                   autocomplete="off">
+            <input type="text" id="item-search-input" class="search-input" placeholder="Search items by name or code..." autocomplete="off">
             <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="m21 21-4.35-4.35"></path>
@@ -218,10 +190,7 @@ function render_search_box(frm, dialog) {
     
     dialog.fields_dict.search_container.$wrapper.html(html);
     
-    // Setup event handlers
     const searchInput = dialog.fields_dict.search_container.$wrapper.find('#item-search-input');
-    
-    // Filter items in real-time as user types
     searchInput.on('input', function() {
         filter_items_list(dialog, $(this).val());
     });
@@ -232,10 +201,8 @@ function filter_items_list(dialog, search_term) {
     const rows = itemsContainer.find('.pack-item-row');
     const noResultsMsg = itemsContainer.find('.no-results-filter');
     
-    // Remove existing no results message
     noResultsMsg.remove();
     
-    // If search is empty, show all items
     if (!search_term || search_term.trim() === '') {
         rows.show();
         return;
@@ -249,7 +216,6 @@ function filter_items_list(dialog, search_term) {
         const itemCode = (row.data('item-code') || '').toString().toLowerCase();
         const itemName = (row.data('item-name') || '').toString().toLowerCase();
         
-        // Check if item code or name contains the search term
         if (itemCode.includes(term) || itemName.includes(term)) {
             row.show();
             visibleCount++;
@@ -258,13 +224,8 @@ function filter_items_list(dialog, search_term) {
         }
     });
     
-    // Show "no results" message if no items match
     if (visibleCount === 0) {
-        itemsContainer.append(`
-            <div class="no-results-filter" style="text-align: center; padding: 40px; color: #888;">
-                No items match your search
-            </div>
-        `);
+        itemsContainer.append(`<div class="no-results-filter" style="text-align: center; padding: 40px; color: #888;">No items match your search</div>`);
     }
 }
 
@@ -274,75 +235,19 @@ function render_items_with_checkboxes(frm, dialog) {
     
     let html = `
         <style>
-            .pack-item-row { 
-                padding: 12px; 
-                border-bottom: 1px solid #e0e0e0; 
-                display: flex; 
-                align-items: center; 
-                gap: 15px;
-                transition: background-color 0.2s;
-                cursor: pointer;
-            }
+            .pack-item-row { padding: 12px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 15px; transition: background-color 0.2s; cursor: pointer; }
             .pack-item-row:hover { background-color: #f8f9fa; }
-            .pack-item-row.fully-packed {
-                background-color: #f0f0f0;
-                opacity: 0.6;
-            }
-            .item-checkbox { 
-                width: 20px; 
-                height: 20px; 
-                cursor: pointer;
-                flex-shrink: 0;
-            }
-            .item-details { 
-                flex: 1;
-                min-width: 0;
-            }
-            .item-name { 
-                font-weight: 600; 
-                color: #333;
-                margin-bottom: 4px;
-            }
-            .item-code {
-                color: #666;
-                font-size: 0.85em;
-                margin-bottom: 4px;
-            }
-            .item-remaining { 
-                color: #888; 
-                font-size: 0.9em; 
-            }
-            .item-remaining.zero {
-                color: #28a745;
-                font-weight: 600;
-            }
-            .qty-input { 
-                width: 100px; 
-                padding: 6px 10px; 
-                border: 1px solid #ccc; 
-                border-radius: 4px;
-                font-size: 14px;
-                flex-shrink: 0;
-            }
-            .qty-input:focus {
-                border-color: #2490ef;
-                outline: none;
-                box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.1);
-            }
-            .items-container {
-                max-height: 400px; 
-                overflow-y: auto; 
-                border: 1px solid #d1d8dd; 
-                border-radius: 4px; 
-                padding: 10px;
-                background: white;
-                margin-top: 15px;
-            }
-            .no-items-message {
-                text-align: center;
-                padding: 40px;
-                color: #888;
-            }
+            .pack-item-row.fully-packed { background-color: #f0f0f0; opacity: 0.6; }
+            .item-checkbox { width: 20px; height: 20px; cursor: pointer; flex-shrink: 0; }
+            .item-details { flex: 1; min-width: 0; }
+            .item-name { font-weight: 600; color: #333; margin-bottom: 4px; }
+            .item-code { color: #666; font-size: 0.85em; margin-bottom: 4px; }
+            .item-remaining { color: #888; font-size: 0.9em; }
+            .item-remaining.zero { color: #28a745; font-weight: 600; }
+            .qty-input { width: 100px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; flex-shrink: 0; }
+            .qty-input:focus { border-color: #2490ef; outline: none; box-shadow: 0 0 0 2px rgba(36,144,239,0.1); }
+            .items-container { max-height: 400px; overflow-y: auto; border: 1px solid #d1d8dd; border-radius: 4px; padding: 10px; background: white; margin-top: 15px; }
+            .no-items-message { text-align: center; padding: 40px; color: #888; }
         </style>
         <div class="items-container">
     `;
@@ -363,43 +268,25 @@ function render_items_with_checkboxes(frm, dialog) {
                      data-item-code="${item.item.toLowerCase()}"
                      data-item-name="${(item.item_name || '').toLowerCase()}"
                      onclick="window.toggleCheckboxOnRow(this)">
-                    <input type="checkbox" 
-                           class="item-checkbox" 
-                           data-item="${item.item}" 
-                           data-max="${remaining}"
-                           ${disabled}
-                           onclick="event.stopPropagation()"
-                           onchange="window.toggleQtyInput(this)">
+                    <input type="checkbox" class="item-checkbox" data-item="${item.item}" data-max="${remaining}" ${disabled}
+                           onclick="event.stopPropagation()" onchange="window.toggleQtyInput(this)">
                     <div class="item-details">
                         <div class="item-name">${item.item_name || item.item}</div>
                         <div class="item-code">${item.item}</div>
                         <div class="${remaining_class}">
-                            ${is_fully_packed ? 
-                                '✓ Fully Packed' : 
-                                `Available: <strong>${remaining}</strong> / ${item.qty} ${item.uom || ''}`
-                            }
+                            ${is_fully_packed ? '✓ Fully Packed' : `Available: <strong>${remaining}</strong> / ${item.qty} ${item.uom || ''}`}
                         </div>
                     </div>
-                    <input type="number" 
-                           class="qty-input" 
-                           data-item="${item.item}"
-                           placeholder="Qty"
-                           min="1"
-                           max="${remaining}"
-                           step="1"
-                           disabled
-                           onclick="event.stopPropagation()"
-                           style="display: none;">
+                    <input type="number" class="qty-input" data-item="${item.item}" placeholder="Qty"
+                           min="1" max="${remaining}" step="1" disabled onclick="event.stopPropagation()" style="display: none;">
                 </div>
             `;
         });
     }
 
     html += `</div>`;
-    
     dialog.fields_dict.items_html.$wrapper.html(html);
 
-    // Add window functions
     window.toggleQtyInput = function(checkbox) {
         const qtyInput = checkbox.parentElement.querySelector('.qty-input');
         if (checkbox.checked) {
@@ -445,10 +332,7 @@ function get_selected_items(dialog) {
         const qty = parseFloat(qtyInput.val()) || 0;
         
         if (qty > 0) {
-            selected.push({
-                item: item,
-                quantity: qty
-            });
+            selected.push({ item: item, quantity: qty });
         }
     });
     
@@ -457,24 +341,15 @@ function get_selected_items(dialog) {
 
 function save_box(frm, box_number, weight, items) {
     if (!weight || weight <= 0) {
-        frappe.msgprint({
-            title: __('Invalid Weight'),
-            message: __('Please enter a valid box weight.'),
-            indicator: 'red'
-        });
+        frappe.msgprint({ title: __('Invalid Weight'), message: __('Please enter a valid box weight.'), indicator: 'red' });
         return false;
     }
 
     if (!items.length) {
-        frappe.msgprint({
-            title: __('No Items Selected'),
-            message: __('Please select at least one item to pack.'),
-            indicator: 'red'
-        });
+        frappe.msgprint({ title: __('No Items Selected'), message: __('Please select at least one item to pack.'), indicator: 'red' });
         return false;
     }
 
-    // Validate quantities
     for (const item of items) {
         const inv = frm.doc.table_ttya.find(r => r.item === item.item);
         if (!inv) continue;
@@ -485,15 +360,13 @@ function save_box(frm, box_number, weight, items) {
         if (item.quantity > available) {
             frappe.msgprint({
                 title: __('Quantity Exceeds Available'),
-                message: __('Cannot pack {0} units of {1}. Only {2} available.', 
-                    [item.quantity, item.item, available]),
+                message: __('Cannot pack {0} units of {1}. Only {2} available.', [item.quantity, item.item, available]),
                 indicator: 'red'
             });
             return false;
         }
     }
 
-    // Add items to packaging details
     items.forEach(item => {
         const inv = frm.doc.table_ttya.find(r => r.item === item.item);
         const row = frm.add_child('table_hqkk');
@@ -504,7 +377,6 @@ function save_box(frm, box_number, weight, items) {
         if (inv) row.uom = inv.uom;
     });
 
-    // Add/update box summary
     let summary = (frm.doc.custom_box_summary || []).find(b => b.box_number === box_number);
     if (!summary) {
         summary = frm.add_child('custom_box_summary');
@@ -533,15 +405,9 @@ function get_next_box_number(frm) {
 }
 
 function update_totals(frm) {
-    const box_numbers = new Set(
-        (frm.doc.table_hqkk || []).map(r => r.box_number).filter(Boolean)
-    );
-    const total_boxes = box_numbers.size;
-    const total_qty = (frm.doc.table_hqkk || [])
-        .reduce((sum, r) => sum + (r.quantity || 0), 0);
-    
-    frm.set_value('total_boxes', total_boxes);
-    frm.set_value('total_qty', total_qty);
+    const box_numbers = new Set((frm.doc.table_hqkk || []).map(r => r.box_number).filter(Boolean));
+    frm.set_value('total_boxes', box_numbers.size);
+    frm.set_value('total_qty', (frm.doc.table_hqkk || []).reduce((sum, r) => sum + (r.quantity || 0), 0));
 }
 
 function get_missing_items(frm) {

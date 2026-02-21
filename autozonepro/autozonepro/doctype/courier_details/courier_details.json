@@ -44,7 +44,7 @@
   },
   {
    "fieldname": "tel_no",
-   "fieldtype": "Phone",
+   "fieldtype": "Data",
    "label": "Tel No"
   },
   {
@@ -71,7 +71,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-14 14:08:25.102491",
+ "modified": "2026-02-21 10:38:38.831568",
  "modified_by": "Administrator",
  "module": "Autozonepro",
  "name": "Courier Details",

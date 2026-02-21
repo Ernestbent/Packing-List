@@ -6,7 +6,6 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "delivery_note",
   "items_section",
   "table_ttya",
   "packaging_details_section",
@@ -14,19 +13,10 @@
   "totals_section",
   "total_qty",
   "column_break_drgx",
-  "total_boxes"
+  "total_boxes",
+  "amended_from"
  ],
  "fields": [
-  {
-   "description": "Fetch Items for the package(s) form the Delivery Note",
-   "fieldname": "delivery_note",
-   "fieldtype": "Link",
-   "in_global_search": 1,
-   "in_list_view": 1,
-   "label": "Delivery Note",
-   "options": "Delivery Note",
-   "reqd": 1
-  },
   {
    "fieldname": "items_section",
    "fieldtype": "Section Break",
@@ -69,13 +59,23 @@
    "fieldname": "total_boxes",
    "fieldtype": "Int",
    "label": "Total Boxes"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Packing List",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-02-12 12:01:58.645275",
+ "modified": "2026-02-21 09:21:48.325343",
  "modified_by": "Administrator",
  "module": "Autozonepro",
  "name": "Packing List",

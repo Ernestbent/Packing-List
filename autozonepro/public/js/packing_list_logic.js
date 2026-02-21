@@ -1,43 +1,46 @@
 frappe.ui.form.on('Packing List', {
-    delivery_note: function(frm) {
-        // Exit if no Delivery Note selected
-        if (!frm.doc.delivery_note) {
+    refresh: function(frm) {
+        if (frm.doc.custom_pick_list && (!frm.doc.table_ttya || !frm.doc.table_ttya.length)) {
+            load_pl_items(frm);
+        }
+    },
+    custom_pick_list: function(frm) {
+        if (!frm.doc.custom_pick_list) {
             frm.set_value('custom_customer', '');
             frm.clear_table('table_ttya');
             frm.refresh_field('table_ttya');
             return;
         }
-
-        // Fetch Delivery Note with Customer + Items
-        frappe.db.get_doc('Delivery Note', frm.doc.delivery_note).then(dn => {
-            // === 1. Set Customer ===
-            frm.set_value('custom_customer', dn.customer);
-            frm.refresh_field('custom_customer');
-
-            // === 2. Fill Items Table ===
-            frm.clear_table('table_ttya');
-            dn.items.forEach(i => {
-                let row = frm.add_child('table_ttya');
-                row.item_code = i.item_code;
-                row.item_name = i.item_name;
-                row.qty = i.qty;
-                row.uom = i.uom;
-                row.rate = i.rate;
-                row.amount = i.amount;
-            });
-            frm.refresh_field('table_ttya');
-
-            // === Optional: Auto-fill Date & Time ===
-            frm.set_value('custom_date', dn.posting_date);
-            frm.set_value('custom_posting_time', dn.posting_time);
-            frm.refresh_fields(['custom_date', 'custom_posting_time']);
-
-        }).catch(err => {
-            frappe.msgprint({
-                title: __('Error'),
-                message: __('Failed to fetch Delivery Note: ') + err.message,
-                indicator: 'red'
-            });
-        });
+        load_pl_items(frm);
     }
 });
+
+function load_pl_items(frm) {
+    frappe.db.get_doc('Pick List', frm.doc.custom_pick_list)
+    .then(function(pl) {
+        if (!pl.locations || pl.locations.length === 0) {
+            frappe.msgprint(__('This Pick List has no items. Please click "Get Item Locations" on the Pick List first.'));
+            return;
+        }
+
+        frm.clear_table('table_ttya');
+
+        pl.locations.forEach(function(loc) {
+            let row = frm.add_child('table_ttya');
+            row.item = loc.item_code;
+            row.item_name = loc.item_name;
+            row.qty = loc.qty;
+            row.uom = loc.uom;
+        });
+
+        frm.refresh_field('table_ttya');
+
+        // Set customer separately after table
+        frappe.db.get_value('Pick List', frm.doc.custom_pick_list, 'customer')
+        .then(function(r) {
+            if (r.message && r.message.customer) {
+                frm.set_value('custom_customer', r.message.customer);
+            }
+        });
+    });
+}
