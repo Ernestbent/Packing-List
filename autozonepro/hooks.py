@@ -156,13 +156,14 @@ doctype_js = {
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+    "Sales Invoice": {
+        "on_submit": "autozonepro.autozonepro.custom_scripts.sales_invoice_hooks.on_submit"
+    },
+    "Pick List": {
+        "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
+    }
+}
 
 # Scheduled Tasks
 # ---------------
@@ -260,4 +261,11 @@ doctype_js = {
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-
+fixtures = [
+    {
+        "doctype": "Workflow",
+        "filters": [
+            ["workflow_name", "=", "Workflow Revised 2 with Automatic Transitions."]
+        ]
+    }
+]
