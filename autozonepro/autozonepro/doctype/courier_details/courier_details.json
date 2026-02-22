@@ -7,8 +7,6 @@
  "field_order": [
   "driver_details_section",
   "first_name",
-  "surname",
-  "full_name",
   "column_break_izlx",
   "tel_no",
   "vehicle_no",
@@ -25,18 +23,7 @@
   {
    "fieldname": "first_name",
    "fieldtype": "Data",
-   "label": "First Name"
-  },
-  {
-   "fieldname": "surname",
-   "fieldtype": "Data",
-   "label": "Surname"
-  },
-  {
-   "fieldname": "full_name",
-   "fieldtype": "Data",
-   "label": "Full Name",
-   "read_only": 1
+   "label": "Name"
   },
   {
    "fieldname": "column_break_izlx",
@@ -71,7 +58,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-21 10:38:38.831568",
+ "modified": "2026-02-22 12:17:44.526824",
  "modified_by": "Administrator",
  "module": "Autozonepro",
  "name": "Courier Details",

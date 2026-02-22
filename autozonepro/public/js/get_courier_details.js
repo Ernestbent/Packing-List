@@ -6,34 +6,41 @@ frappe.ui.form.on("Sales Order", {
             return new Promise((resolve, reject) => {
                 frappe.dom.unfreeze();
 
-                // Find Packing List directly via custom_sales_order
-                frappe.call({
-                    method: "frappe.client.get_list",
-                    args: {
-                        doctype: "Packing List",
-                        filters: { custom_sales_order: frm.doc.name },
-                        fields: ["name"],
-                        order_by: "`tabPacking List`.creation desc",
-                        limit_page_length: 1
-                    },
-                    callback: function(pl_res) {
-                        if (pl_res.message && pl_res.message.length > 0) {
-                            let pl_name = pl_res.message[0].name;
-                            console.log("Found Packing List:", pl_name);
+                // First check customer's region
+                frappe.db.get_value('Customer', frm.doc.customer, 'region')
+                .then(r => {
+                    const region = r.message && r.message.region;
+                    const is_central = region && region.toLowerCase() === 'central';
 
-                            frappe.call({
-                                method: "frappe.client.get",
-                                args: { doctype: "Packing List", name: pl_name },
-                                callback: function(pl_doc_res) {
-                                    let rows = pl_doc_res.message.custom_box_summary || [];
-                                    show_courier_dialog(frm, resolve, reject, pl_name, rows);
-                                }
-                            });
-                        } else {
-                            console.log("No Packing List found for Sales Order:", frm.doc.name);
-                            show_courier_dialog(frm, resolve, reject, null, []);
+                    // Find Packing List
+                    frappe.call({
+                        method: "frappe.client.get_list",
+                        args: {
+                            doctype: "Packing List",
+                            filters: { custom_sales_order: frm.doc.name },
+                            fields: ["name"],
+                            order_by: "`tabPacking List`.creation desc",
+                            limit_page_length: 1
+                        },
+                        callback: function(pl_res) {
+                            if (pl_res.message && pl_res.message.length > 0) {
+                                let pl_name = pl_res.message[0].name;
+                                console.log("Found Packing List:", pl_name);
+
+                                frappe.call({
+                                    method: "frappe.client.get",
+                                    args: { doctype: "Packing List", name: pl_name },
+                                    callback: function(pl_doc_res) {
+                                        let rows = is_central ? [] : (pl_doc_res.message.custom_box_summary || []);
+                                        show_courier_dialog(frm, resolve, reject, pl_name, rows, is_central);
+                                    }
+                                });
+                            } else {
+                                console.log("No Packing List found for Sales Order:", frm.doc.name);
+                                show_courier_dialog(frm, resolve, reject, null, [], is_central);
+                            }
                         }
-                    }
+                    });
                 });
             });
         }
@@ -135,7 +142,7 @@ frappe.ui.form.on("Sales Order", {
 });
 
 
-function show_courier_dialog(frm, resolve, reject, pl_name, box_rows) {
+function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central) {
 
     const STORAGE_KEY = `courier_draft_${frm.doc.name}`;
 
@@ -149,7 +156,6 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows) {
         try {
             let draft = {
                 first_name: d.get_value("first_name") || "",
-                surname: d.get_value("surname") || "",
                 tel_no: d.get_value("tel_no") || "",
                 vehicle_no: d.get_value("vehicle_no") || "",
                 expenses: expense_overrides || {}
@@ -221,54 +227,54 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows) {
            </div>`
         : "";
 
-    let d = new frappe.ui.Dialog({
-        title: "Enter Courier Details",
-        fields: [
-            { fieldname: "draft_notice", fieldtype: "HTML", options: draft_banner },
-            { fieldtype: "Section Break", label: "Driver Details" },
-            {
-                label: "First Name", fieldname: "first_name", fieldtype: "Data",
-                reqd: 1, default: saved_draft.first_name || ""
-            },
-            {
-                label: "Surname", fieldname: "surname", fieldtype: "Data",
-                reqd: 1, default: saved_draft.surname || ""
-            },
-            {
-                label: "Full Name", fieldname: "full_name", fieldtype: "Data",
-                read_only: 1,
-                default: (saved_draft.first_name && saved_draft.surname)
-                    ? `${saved_draft.first_name} ${saved_draft.surname}`.trim() : ""
-            },
-            { fieldtype: "Column Break" },
-            {
-                label: "Tel No", fieldname: "tel_no", fieldtype: "Data",
-                reqd: 1, default: saved_draft.tel_no || ""
-            },
-            {
-                label: "Vehicle No", fieldname: "vehicle_no", fieldtype: "Data",
-                reqd: 1, default: saved_draft.vehicle_no || ""
-            },
+    // Build fields matching updated Courier Details doctype
+    let fields = [
+        { fieldname: "draft_notice", fieldtype: "HTML", options: draft_banner },
+        { fieldtype: "Section Break", label: "Driver Details" },
+        {
+            label: "Name", fieldname: "first_name", fieldtype: "Data",
+            reqd: 1, default: saved_draft.first_name || ""
+        },
+        { fieldtype: "Column Break" },
+        {
+            label: "Tel No", fieldname: "tel_no", fieldtype: "Data",
+            reqd: 1, default: saved_draft.tel_no || ""
+        },
+        {
+            label: "Vehicle No", fieldname: "vehicle_no", fieldtype: "Data",
+            reqd: 1, default: saved_draft.vehicle_no || ""
+        }
+    ];
+
+    // Only show Shipping Costs for non-Central customers
+    if (!is_central) {
+        fields.push(
             { fieldtype: "Section Break", label: "Shipping Costs" },
             {
                 fieldname: "box_summary_html", fieldtype: "HTML",
                 options: pl_label + build_box_table(box_rows)
             }
-        ],
+        );
+    }
+
+    let d = new frappe.ui.Dialog({
+        title: "Enter Courier Details",
+        fields: fields,
         primary_action_label: "Create & Proceed",
         primary_action(values) {
-            if (!values.first_name || !values.surname || !values.tel_no || !values.vehicle_no) {
+            if (!values.first_name || !values.tel_no || !values.vehicle_no) {
                 frappe.msgprint({ title: __("Required"), indicator: "red", message: __("Please fill all required fields.") });
                 return;
             }
 
-            let expense_overrides = {};
-            let updated_rows = box_rows.map((row, idx) => {
-                let input = d.$wrapper.find(`.expense-input[data-idx="${idx}"]`);
-                let expense_val = input.length ? parseFloat(input.val()) || 0 : (row.expense || 0);
-                expense_overrides[idx] = expense_val;
-                return { box_number: row.box_number || 0, weight_kg: row.weight_kg || 0, expense: expense_val };
-            });
+            let updated_rows = [];
+            if (!is_central) {
+                updated_rows = box_rows.map((row, idx) => {
+                    let input = d.$wrapper.find(`.expense-input[data-idx="${idx}"]`);
+                    let expense_val = input.length ? parseFloat(input.val()) || 0 : (row.expense || 0);
+                    return { box_number: row.box_number || 0, weight_kg: row.weight_kg || 0, expense: expense_val };
+                });
+            }
 
             d.get_primary_btn().attr("disabled", true);
 
@@ -277,7 +283,6 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows) {
                 args: {
                     sales_order: frm.doc.name,
                     first_name: values.first_name,
-                    surname: values.surname,
                     tel_no: values.tel_no,
                     vehicle_no: values.vehicle_no,
                     packing_list: pl_name || "",
@@ -308,12 +313,14 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows) {
         },
         secondary_action_label: "Cancel",
         secondary_action() {
-            let expense_overrides = {};
-            box_rows.forEach((row, idx) => {
-                let input = d.$wrapper.find(`.expense-input[data-idx="${idx}"]`);
-                if (input.length) expense_overrides[idx] = parseFloat(input.val()) || 0;
-            });
-            save_draft(d, expense_overrides);
+            if (!is_central) {
+                let expense_overrides = {};
+                box_rows.forEach((row, idx) => {
+                    let input = d.$wrapper.find(`.expense-input[data-idx="${idx}"]`);
+                    if (input.length) expense_overrides[idx] = parseFloat(input.val()) || 0;
+                });
+                save_draft(d, expense_overrides);
+            }
             d.hide();
             frappe.show_alert({ message: __("Draft saved. Your entries will be restored next time."), indicator: "blue" });
             reject();
@@ -323,19 +330,22 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows) {
     d.$wrapper.find(".modal-dialog").css({ "max-width": "800px", "width": "90%" });
 
     d.fields_dict.first_name.$input.on("input", function() {
-        d.set_value("full_name", `${d.get_value("first_name") || ""} ${d.get_value("surname") || ""}`.trim());
-        save_draft(d, get_current_expenses(d, box_rows));
+        if (!is_central) save_draft(d, get_current_expenses(d, box_rows));
     });
-    d.fields_dict.surname.$input.on("input", function() {
-        d.set_value("full_name", `${d.get_value("first_name") || ""} ${d.get_value("surname") || ""}`.trim());
-        save_draft(d, get_current_expenses(d, box_rows));
+    d.fields_dict.tel_no.$input.on("input", function() {
+        if (!is_central) save_draft(d, get_current_expenses(d, box_rows));
     });
-    d.fields_dict.tel_no.$input.on("input", function() { save_draft(d, get_current_expenses(d, box_rows)); });
-    d.fields_dict.vehicle_no.$input.on("input", function() { save_draft(d, get_current_expenses(d, box_rows)); });
+    d.fields_dict.vehicle_no.$input.on("input", function() {
+        if (!is_central) save_draft(d, get_current_expenses(d, box_rows));
+    });
 
     d.show();
 
-    d.$wrapper.on("input", ".expense-input", function() { save_draft(d, get_current_expenses(d, box_rows)); });
+    if (!is_central) {
+        d.$wrapper.on("input", ".expense-input", function() {
+            save_draft(d, get_current_expenses(d, box_rows));
+        });
+    }
 }
 
 function get_current_expenses(d, box_rows) {
