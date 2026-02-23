@@ -29,7 +29,7 @@ function load_pl_items(frm) {
             let row = frm.add_child('table_ttya');
             row.item = loc.item_code;
             row.item_name = loc.item_name;
-            row.qty = loc.qty;
+            row.qty = loc.picked_qty; 
             row.uom = loc.uom;
         });
 
