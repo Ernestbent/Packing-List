@@ -24,7 +24,4 @@ class PackingList(Document):
                     'workflow_state',
                     'Packed'
                 )
-                frappe.publish_realtime('reload_form', {
-                    'doctype': 'Sales Order',
-                    'name': self.custom_sales_order
-                })
+                frappe.db.commit()
