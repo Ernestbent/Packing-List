@@ -512,7 +512,6 @@ function save_box(frm, box_number, weight, items) {
     frm.refresh_field('table_hqkk');
     frm.refresh_field('custom_box_summary');
     update_totals(frm);
-    frm.save();
     
     return true;
 }
