@@ -24,11 +24,9 @@ frappe.ui.form.on('Sales Order', {
                 },
                 callback: function(r) {
                     if (r.message && r.message.length > 0) {
-                        // Active Pick List exists — remove Create button
                         frm.remove_custom_button('Pick List', 'Create');
                         frm.remove_custom_button('Pick List', 'Make');
                     }
-                    // Cancelled or none — ERPNext shows Create natively
                 }
             });
 
@@ -47,10 +45,9 @@ frappe.ui.form.on('Sales Order', {
                 },
                 callback: function(r) {
                     if (r.message && r.message.length > 0) {
-                        // Active Packing List exists — don't show Create
                         return;
                     }
-                    // No active Packing List — show Create button
+
                     frm.add_custom_button(__('Packing List'), function() {
                         frappe.call({
                             method: 'frappe.client.get_list',
@@ -73,23 +70,31 @@ frappe.ui.form.on('Sales Order', {
                                 const pl_name = pick_r.message[0].name;
 
                                 frappe.db.get_doc('Pick List', pl_name).then(pl_doc => {
-                                    frappe.model.with_doctype('Packing List', () => {
-                                        const new_pl = frappe.model.get_new_doc('Packing List');
-                                        new_pl.custom_pick_list = pl_doc.name;
-                                        new_pl.custom_sales_order = frm.doc.name;
-                                        new_pl.custom_customer = pl_doc.customer;
-                                        new_pl.custom_date = frappe.datetime.get_today();
-                                        new_pl.custom_posting_time = frappe.datetime.now_time();
+                                    const doc = {
+                                        doctype: 'Packing List',
+                                        custom_pick_list: pl_doc.name,
+                                        custom_sales_order: frm.doc.name,
+                                        custom_customer: pl_doc.customer,
+                                        custom_date: frappe.datetime.get_today(),
+                                        custom_posting_time: frappe.datetime.now_time(),
+                                        table_ttya: (pl_doc.locations || []).map(loc => ({
+                                            doctype: 'Packing List Item',
+                                            item: loc.item_code,
+                                            item_name: loc.item_name,
+                                            qty: loc.qty,
+                                            uom: loc.uom
+                                        }))
+                                    };
 
-                                        (pl_doc.locations || []).forEach(loc => {
-                                            const row = frappe.model.add_child(new_pl, 'Items', 'table_ttya');
-                                            row.item = loc.item_code;
-                                            row.item_name = loc.item_name;
-                                            row.qty = loc.qty;
-                                            row.uom = loc.uom;
-                                        });
-
-                                        frappe.set_route('Form', 'Packing List', new_pl.name);
+                                    // ✅ Insert directly via API — reliable with child tables
+                                    frappe.call({
+                                        method: 'frappe.client.insert',
+                                        args: { doc: doc },
+                                        callback: function(r) {
+                                            if (r.message) {
+                                                frappe.set_route('Form', 'Packing List', r.message.name);
+                                            }
+                                        }
                                     });
                                 });
                             }
@@ -113,11 +118,9 @@ frappe.ui.form.on('Sales Order', {
                 },
                 callback: function(r) {
                     if (r.message && r.message.length > 0) {
-                        // Active Delivery Note exists — remove Create button
                         frm.remove_custom_button('Delivery Note', 'Create');
                         frm.remove_custom_button('Delivery Note', 'Make');
                     }
-                    // Cancelled or none — ERPNext shows Create natively
                 }
             });
 
@@ -136,11 +139,9 @@ frappe.ui.form.on('Sales Order', {
                 },
                 callback: function(r) {
                     if (r.message && r.message.length > 0) {
-                        // Active Sales Invoice exists — remove Create button
                         frm.remove_custom_button('Sales Invoice', 'Create');
                         frm.remove_custom_button('Sales Invoice', 'Make');
                     }
-                    // Cancelled or none — ERPNext shows Create natively
                 }
             });
 

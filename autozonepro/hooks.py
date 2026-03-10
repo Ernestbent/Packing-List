@@ -59,7 +59,7 @@ doctype_js = {
         "public/js/add_packing_list_on_dn.js"
     ],
     "Pick List":[
-        "public/js/add_packing_list_on_pl.js"
+        # "public/js/add_packing_list_on_pl.js"
     ]
 }
 

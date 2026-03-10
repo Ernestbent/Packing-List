@@ -18,12 +18,12 @@ frappe.ui.form.on('Packing List', {
         update_totals(frm);
     },
 
-    before_save(frm) {
+    before_submit(frm) {
         update_totals(frm);
         const missing = get_missing_items(frm);
         if (missing.length) {
             frappe.msgprint({
-                title: __("Cannot Save – Items Missing"),
+                title: __("Cannot Submit – Items Missing"),
                 message: __("The following items are not fully packed:<br><ul><li>{0}</li></ul>", [
                     missing.map(m => `${m.item_name} (Need ${m.need}, Packed ${m.packed})`).join('</li><li>')
                 ]),
@@ -512,6 +512,7 @@ function save_box(frm, box_number, weight, items) {
     frm.refresh_field('table_hqkk');
     frm.refresh_field('custom_box_summary');
     update_totals(frm);
+    frm.save();
     
     return true;
 }
