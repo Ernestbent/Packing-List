@@ -76,7 +76,7 @@ function load_pl_items(frm) {
             const row = frm.add_child('table_ttya');
             row.item = loc.item_code;
             row.item_name = loc.item_name;
-            row.qty = loc.qty;
+            row.qty = loc.picked_qty || loc.qty;
             row.uom = loc.uom;
         });
 
@@ -151,14 +151,16 @@ function open_pack_dialog(frm) {
                 render_items_with_checkboxes(frm, d);
                 render_search_box(frm, d);
                 
-                const missing = get_missing_items(frm);
-                if (missing.length === 0) {
-                    frappe.msgprint({
-                        title: __('All Items Packed!'),
-                        message: __('All items from the Pick List have been packed. You can close the dialog now.'),
-                        indicator: 'green'
-                    });
-                }
+                setTimeout(() => {
+                    const missing = get_missing_items(frm);
+                    if (missing.length === 0) {
+                        frappe.msgprint({
+                            title: __('All Items Packed!'),
+                            message: __('All items from the Pick List have been packed. You can close the dialog now.'),
+                            indicator: 'green'
+                        });
+                    }
+                }, 1000);
             }
         },
         secondary_action() {
@@ -512,6 +514,7 @@ function save_box(frm, box_number, weight, items) {
     frm.refresh_field('table_hqkk');
     frm.refresh_field('custom_box_summary');
     update_totals(frm);
+    frm.save();
     
     return true;
 }

@@ -81,7 +81,7 @@ frappe.ui.form.on('Sales Order', {
                                             doctype: 'Packing List Item',
                                             item: loc.item_code,
                                             item_name: loc.item_name,
-                                            qty: loc.qty,
+                                            qty: loc.picked_qty,
                                             uom: loc.uom
                                         }))
                                     };
