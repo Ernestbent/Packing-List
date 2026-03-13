@@ -23,7 +23,7 @@ frappe.ui.form.on('Packing List', {
         const missing = get_missing_items(frm);
         if (missing.length) {
             frappe.msgprint({
-                title: __("Cannot Submit – Items Missing"),
+                title: __("Cannot Save – Items Missing"),
                 message: __("The following items are not fully packed:<br><ul><li>{0}</li></ul>", [
                     missing.map(m => `${m.item_name} (Need ${m.need}, Packed ${m.packed})`).join('</li><li>')
                 ]),
@@ -76,7 +76,7 @@ function load_pl_items(frm) {
             const row = frm.add_child('table_ttya');
             row.item = loc.item_code;
             row.item_name = loc.item_name;
-            row.qty = loc.picked_qty || loc.qty;
+            row.qty = loc.qty;
             row.uom = loc.uom;
         });
 
@@ -131,42 +131,59 @@ function open_pack_dialog(frm) {
             }
         ],
         primary_action_label: __('Save Box & Continue'),
-        secondary_action_label: __('Save & Close'),
+        secondary_action_label: __('Close'),
         primary_action(values) {
             const selected = get_selected_items(d);
             if (save_box(frm, values.box_number, values.box_weight, selected)) {
-                frappe.show_alert({ 
-                    message: __('Box {0} saved successfully!', [values.box_number]), 
-                    indicator: 'green' 
+                frm.save()
+                .then(() => {
+                    
+                    setTimeout(() => {
+                        if (d && d.$wrapper && d.$wrapper.is(':visible')) {
+                            const next_box = values.box_number + 1;
+                            
+                            const searchInput = d.fields_dict.search_container.$wrapper.find('#item-search-input');
+                            if (searchInput.length) {
+                                searchInput.val('');
+                            }
+                            
+                            clear_all_selections(d);
+                            
+                            d.set_value('box_number', next_box);
+                            d.set_value('box_weight', 0);
+                            
+                            render_items_with_checkboxes(frm, d);
+                            
+                            d.$wrapper.css('z-index', '1060');
+                            d.show();
+                            
+                            const missing = get_missing_items(frm);
+                            if (missing.length === 0) {
+                                frappe.msgprint({
+                                    title: __('All Items Packed!'),
+                                    message: __('All items from the Pick List have been packed. You can close the dialog now.'),
+                                    indicator: 'green'
+                                });
+                            }
+                        }
+                    }, 200);
                 });
-                
-                const next_box = values.box_number + 1;
-                d.set_value('box_number', next_box);
-                d.set_value('box_weight', 0);
-                
-                const searchInput = d.fields_dict.search_container.$wrapper.find('#item-search-input');
-                searchInput.val('');
-                
-                clear_all_selections(d);
-                render_items_with_checkboxes(frm, d);
-                render_search_box(frm, d);
-                
-                setTimeout(() => {
-                    const missing = get_missing_items(frm);
-                    if (missing.length === 0) {
-                        frappe.msgprint({
-                            title: __('All Items Packed!'),
-                            message: __('All items from the Pick List have been packed. You can close the dialog now.'),
-                            indicator: 'green'
-                        });
-                    }
-                }, 1000);
             }
         },
         secondary_action() {
-            d.hide();
+            d.hide(true);
         }
     });
+
+    // Override the hide method to prevent accidental closing
+    const originalHide = d.hide;
+    d.hide = function(force) {
+        if (force === true) {
+            originalHide.call(d);
+        } else {
+            console.log('Prevented dialog close - use Save & Close to exit');
+        }
+    };
 
     d.fields_dict.box_number.df.onchange = () => {
         const box_number = d.get_value('box_number');
@@ -299,15 +316,15 @@ function render_items_with_checkboxes(frm, dialog) {
     const items = frm.doc.table_ttya || [];
     const current_box = dialog.get_value('box_number');
     
-    // Check if this is old data (no source_row_idx fields)
     const has_source_row_idx = frm.doc.table_hqkk && frm.doc.table_hqkk.some(r => r.source_row_idx !== undefined && r.source_row_idx !== null);
     
     let html = `
         <style>
             .pack-item-row { padding: 12px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 15px; transition: background-color 0.2s; cursor: pointer; }
             .pack-item-row:hover { background-color: #f8f9fa; }
-            .pack-item-row.fully-packed { background-color: #f0f0f0; opacity: 0.6; }
+            .pack-item-row.fully-packed { background-color: #f0f0f0; opacity: 0.6; pointer-events: none; }
             .item-checkbox { width: 20px; height: 20px; cursor: pointer; flex-shrink: 0; }
+            .item-checkbox:disabled { cursor: not-allowed; }
             .item-details { flex: 1; min-width: 0; }
             .item-name { font-weight: 600; color: #333; margin-bottom: 4px; }
             .item-code { color: #666; font-size: 0.85em; margin-bottom: 4px; }
@@ -325,43 +342,100 @@ function render_items_with_checkboxes(frm, dialog) {
         html += '<div class="no-items-message">No items available to pack</div>';
     } else {
         items.forEach((item, idx) => {
-            let remaining = item.qty;
+            // Calculate total packed quantity for this item/row across ALL boxes
+            let total_packed = 0;
             
             if (!has_source_row_idx) {
-                // Old data: use item code matching - SUM ALL
                 (frm.doc.table_hqkk || []).forEach(box_item => {
                     if (box_item.item === item.item) {
-                        remaining -= (box_item.quantity || 0);
-                    }
-                });
-                
-                // Add back items in current box being edited
-                (frm.doc.table_hqkk || []).forEach(box_item => {
-                    if (box_item.box_number === current_box && box_item.item === item.item) {
-                        remaining += (box_item.quantity || 0);
+                        total_packed += (box_item.quantity || 0);
                     }
                 });
             } else {
-                // New data: use source_row_idx
                 (frm.doc.table_hqkk || []).forEach(box_item => {
-                    if (box_item.box_number !== current_box && box_item.source_row_idx === idx) {
-                        remaining -= (box_item.quantity || 0);
-                    }
-                });
-                
-                (frm.doc.table_hqkk || []).forEach(box_item => {
-                    if (box_item.box_number === current_box && box_item.source_row_idx === idx) {
-                        remaining += (box_item.quantity || 0);
+                    if (box_item.source_row_idx === idx) {
+                        total_packed += (box_item.quantity || 0);
                     }
                 });
             }
             
-            remaining = Math.max(0, remaining);
-            const is_fully_packed = remaining === 0;
-            const disabled = is_fully_packed ? 'disabled' : '';
-            const row_class = is_fully_packed ? 'pack-item-row fully-packed' : 'pack-item-row';
-            const remaining_class = is_fully_packed ? 'item-remaining zero' : 'item-remaining';
+            const remaining = Math.max(0, item.qty - total_packed);
             
+            // Add back the quantity from current box for display purposes
+            let display_remaining = remaining;
+            if (!has_source_row_idx) {
+                (frm.doc.table_hqkk || []).forEach(box_item => {
+                    if (box_item.box_number === current_box && box_item.item === item.item) {
+                        display_remaining += (box_item.quantity || 0);
+                    }
+                });
+            } else {
+                (frm.doc.table_hqkk || []).forEach(box_item => {
+                    if (box_item.box_number === current_box && box_item.source_row_idx === idx) {
+                        display_remaining += (box_item.quantity || 0);
+                    }
+                });
+            }
+
+            // Check if this item exists in the current box being edited
+            const is_in_current_box = (frm.doc.table_hqkk || []).some(box_item => 
+                box_item.box_number === current_box && box_item.source_row_idx === idx
+            );
+
+            // For display, show the quantity packed in this box if editing
+            let display_available;
+            if (is_in_current_box) {
+                const saved_qty = (frm.doc.table_hqkk || []).find(
+                    box_item => box_item.box_number === current_box && box_item.source_row_idx === idx
+                )?.quantity || 0;
+                display_available = saved_qty;
+            } else {
+                display_available = display_remaining;
+            }
+
+            // --- KEY FIX ---
+            // Only grey out items that are fully packed in OTHER boxes (not the current box)
+            let packed_in_other_boxes = 0;
+            if (!has_source_row_idx) {
+                (frm.doc.table_hqkk || []).forEach(box_item => {
+                    if (box_item.box_number !== current_box && box_item.item === item.item) {
+                        packed_in_other_boxes += (box_item.quantity || 0);
+                    }
+                });
+            } else {
+                (frm.doc.table_hqkk || []).forEach(box_item => {
+                    if (box_item.box_number !== current_box && box_item.source_row_idx === idx) {
+                        packed_in_other_boxes += (box_item.quantity || 0);
+                    }
+                });
+            }
+            const is_fully_packed_elsewhere = packed_in_other_boxes >= item.qty;
+
+            let disabled = false;
+            let row_class = 'pack-item-row';
+            let remaining_class = 'item-remaining';
+            let status_text;
+
+            if (is_in_current_box) {
+                // Item is in this box — always editable, never greyed
+                disabled = false;
+                row_class = 'pack-item-row';
+                remaining_class = 'item-remaining';
+                status_text = `Editing: Packed <strong>${display_available}</strong> in this box`;
+            } else if (is_fully_packed_elsewhere) {
+                // Fully packed in OTHER boxes — grey it out
+                disabled = 'disabled';
+                row_class = 'pack-item-row fully-packed';
+                remaining_class = 'item-remaining zero';
+                status_text = '✓ Fully Packed';
+            } else {
+                // Available to pack
+                disabled = '';
+                row_class = 'pack-item-row';
+                remaining_class = 'item-remaining';
+                status_text = `Available: <strong>${display_available}</strong> / ${item.qty} ${item.uom || ''}`;
+            }
+
             html += `
                 <div class="${row_class}" 
                      data-row-idx="${idx}"
@@ -369,17 +443,17 @@ function render_items_with_checkboxes(frm, dialog) {
                      data-item-code="${item.item.toLowerCase()}"
                      data-item-name="${(item.item_name || '').toLowerCase()}"
                      onclick="window.toggleCheckboxOnRow(this)">
-                    <input type="checkbox" class="item-checkbox" data-row-idx="${idx}" data-max="${remaining}" ${disabled}
+                    <input type="checkbox" class="item-checkbox" data-row-idx="${idx}" data-max="${display_available}" ${disabled ? 'disabled' : ''}
                            onclick="event.stopPropagation()" onchange="window.toggleQtyInput(this)">
                     <div class="item-details">
                         <div class="item-name">${item.item_name || item.item}</div>
                         <div class="item-code">${item.item}</div>
                         <div class="${remaining_class}">
-                            ${is_fully_packed ? '✓ Fully Packed' : `Available: <strong>${remaining}</strong> / ${item.qty} ${item.uom || ''}`}
+                            ${status_text}
                         </div>
                     </div>
                     <input type="number" class="qty-input" data-row-idx="${idx}" placeholder="Qty"
-                           min="1" max="${remaining}" step="1" disabled onclick="event.stopPropagation()" style="display: none;">
+                           min="1" max="${display_available}" step="1" disabled onclick="event.stopPropagation()" style="display: none;">
                 </div>
             `;
         });
@@ -387,6 +461,21 @@ function render_items_with_checkboxes(frm, dialog) {
 
     html += `</div>`;
     dialog.fields_dict.items_html.$wrapper.html(html);
+
+    // Auto-check and show quantity inputs for items in the current box
+    setTimeout(() => {
+        const currentBoxItems = (frm.doc.table_hqkk || []).filter(r => r.box_number === current_box);
+        currentBoxItems.forEach(boxItem => {
+            const checkbox = dialog.fields_dict.items_html.$wrapper.find(`.item-checkbox[data-row-idx="${boxItem.source_row_idx}"]`);
+            if (checkbox.length) {
+                checkbox.prop('checked', true);
+                const qtyInput = checkbox.closest('.pack-item-row').find('.qty-input');
+                qtyInput.show();
+                qtyInput.prop('disabled', false);
+                qtyInput.val(boxItem.quantity);
+            }
+        });
+    }, 100);
 
     window.toggleQtyInput = function(checkbox) {
         const qtyInput = checkbox.parentElement.querySelector('.qty-input');
@@ -451,9 +540,9 @@ function save_box(frm, box_number, weight, items) {
         return false;
     }
 
-    // Check if old or new data
     const has_source_row_idx = frm.doc.table_hqkk && frm.doc.table_hqkk.some(r => r.source_row_idx !== undefined && r.source_row_idx !== null);
 
+    // Validate quantities
     for (const item of items) {
         const row = frm.doc.table_ttya[item.row_idx];
         if (!row) continue;
@@ -461,14 +550,12 @@ function save_box(frm, box_number, weight, items) {
         let packed_in_other_boxes = 0;
         
         if (!has_source_row_idx) {
-            // Old data: sum all packed in other boxes by item code
             (frm.doc.table_hqkk || []).forEach(box_item => {
                 if (box_item.box_number !== box_number && box_item.item === row.item) {
                     packed_in_other_boxes += (box_item.quantity || 0);
                 }
             });
         } else {
-            // New data: use source_row_idx
             (frm.doc.table_hqkk || []).forEach(box_item => {
                 if (box_item.box_number !== box_number && box_item.source_row_idx === item.row_idx) {
                     packed_in_other_boxes += (box_item.quantity || 0);
@@ -488,7 +575,7 @@ function save_box(frm, box_number, weight, items) {
         }
     }
 
-    // Remove old items from this box
+    // Remove old items from this box (if editing an existing box)
     frm.doc.table_hqkk = (frm.doc.table_hqkk || []).filter(r => r.box_number !== box_number);
 
     // Add new items
@@ -504,6 +591,7 @@ function save_box(frm, box_number, weight, items) {
         row.source_row_idx = item.row_idx;
     });
 
+    // Update or create box summary
     let summary = (frm.doc.custom_box_summary || []).find(b => b.box_number === box_number);
     if (!summary) {
         summary = frm.add_child('custom_box_summary');
@@ -514,7 +602,6 @@ function save_box(frm, box_number, weight, items) {
     frm.refresh_field('table_hqkk');
     frm.refresh_field('custom_box_summary');
     update_totals(frm);
-    frm.save();
     
     return true;
 }
@@ -570,11 +657,9 @@ function update_totals(frm) {
 function get_missing_items(frm) {
     const missing = [];
     
-    // Check if this is old data (no source_row_idx fields at all)
     const has_source_row_idx = frm.doc.table_hqkk && frm.doc.table_hqkk.some(r => r.source_row_idx !== undefined && r.source_row_idx !== null);
     
     if (!has_source_row_idx && frm.doc.table_hqkk && frm.doc.table_hqkk.length > 0) {
-        // Old data: use item code matching
         const packed_by_item = {};
         (frm.doc.table_hqkk || []).forEach(row => {
             packed_by_item[row.item] = (packed_by_item[row.item] || 0) + (row.quantity || 0);
@@ -592,7 +677,6 @@ function get_missing_items(frm) {
             }
         });
     } else {
-        // New data: use row index matching
         const packed_by_row = calculate_packed_qty_by_row(frm);
         
         (frm.doc.table_ttya || []).forEach((inv, idx) => {
