@@ -63,7 +63,11 @@ doctype_js = {
     ]
 }
 
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {
+    "Sales Order" : [
+        "public/js/generate_gate_pass.js"
+        ]
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
@@ -162,6 +166,9 @@ doc_events = {
     },
     "Pick List": {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
+    },
+    "Sales Order":{
+        "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
     }
 }
 
@@ -261,11 +268,11 @@ doc_events = {
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-fixtures = [
-    {
-        "doctype": "Workflow",
-        "filters": [
-            ["workflow_name", "=", "Workflow Revised 2 with Automatic Transitions."]
-        ]
-    }
-]
+# fixtures = [
+#     {
+#         "doctype": "Workflow",
+#         "filters": [
+#             ["workflow_name", "=", "Workflow Revised 2 with Automatic Transitions."]
+#         ]
+#     }
+# ]

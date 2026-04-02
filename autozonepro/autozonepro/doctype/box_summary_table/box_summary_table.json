@@ -8,7 +8,9 @@
  "field_order": [
   "box_number",
   "weight_kg",
-  "expense"
+  "expense",
+  "box_item_code",
+  "box_type"
  ],
  "fields": [
   {
@@ -26,13 +28,23 @@
    "fieldname": "expense",
    "fieldtype": "Currency",
    "label": "Expense"
+  },
+  {
+   "fieldname": "box_item_code",
+   "fieldtype": "Data",
+   "label": "Box Item Code"
+  },
+  {
+   "fieldname": "box_type",
+   "fieldtype": "Data",
+   "label": "Box Type"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-11-27 09:00:24.343802",
+ "modified": "2026-04-02 11:21:47.555376",
  "modified_by": "Administrator",
  "module": "Autozonepro",
  "name": "Box Summary Table",

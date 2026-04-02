@@ -1,0 +1,53 @@
+{
+ "add_total_row": 0,
+ "add_translate_data": 0,
+ "columns": [],
+ "creation": "2026-04-02 11:47:18.000075",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": "Autzone Suppliers of Genuine Auto Parts",
+ "letterhead": null,
+ "modified": "2026-04-02 11:47:18.000075",
+ "modified_by": "Administrator",
+ "module": "Autozonepro",
+ "name": "Item Catalog Report",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "ref_doctype": "Item",
+ "report_name": "Item Catalog Report",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "Item Manager"
+  },
+  {
+   "role": "Stock Manager"
+  },
+  {
+   "role": "Stock User"
+  },
+  {
+   "role": "Sales User"
+  },
+  {
+   "role": "Purchase User"
+  },
+  {
+   "role": "Maintenance User"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Manufacturing User"
+  },
+  {
+   "role": "Desk User"
+  }
+ ],
+ "timeout": 0
+}
