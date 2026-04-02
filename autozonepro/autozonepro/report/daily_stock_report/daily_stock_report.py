@@ -51,7 +51,7 @@ def get_columns(filters):
 
 def get_data(filters):
     month = int(filters.month)
-    year = int(filters.year)
+    year  = int(filters.year)
     days_in_month = calendar.monthrange(year, month)[1]
 
     ## Cap the last visible day to today if viewing the current month
@@ -63,73 +63,75 @@ def get_data(filters):
     from_date = "{}-{:02d}-01".format(year, month)
     to_date   = "{}-{:02d}-{:02d}".format(year, month, days_in_month)
 
-    conditions = ""
-    sle_filters = {
-        "from_date": from_date,
-        "to_date":   to_date
-    }
-
     ## Build optional filters
-    if filters.get("warehouse"):
-        conditions += " AND sle.warehouse = %(warehouse)s"
-        sle_filters["warehouse"] = filters.warehouse
+    item_conditions = ""
+    item_filters    = {}
 
     if filters.get("item_code"):
-        conditions += " AND sle.item_code = %(item_code)s"
-        sle_filters["item_code"] = filters.item_code
+        item_conditions += " AND i.item_code = %(item_code)s"
+        item_filters["item_code"] = filters.item_code
 
     if filters.get("item_group"):
-        conditions += " AND i.item_group = %(item_group)s"
-        sle_filters["item_group"] = filters.item_group
+        item_conditions += " AND i.item_group = %(item_group)s"
+        item_filters["item_group"] = filters.item_group
 
-    ## Get distinct item + warehouse combinations active in this month
-    pairs = frappe.db.sql("""
-        SELECT DISTINCT sle.item_code, sle.warehouse
-        FROM `tabStock Ledger Entry` sle
-        INNER JOIN `tabItem` i ON i.name = sle.item_code
-        WHERE sle.docstatus = 1
-          AND DATE(sle.posting_date) BETWEEN %(from_date)s AND %(to_date)s
+    ## Pull ALL items from tabItem regardless of stock or warehouse
+    all_items = frappe.db.sql("""
+        SELECT i.item_code
+        FROM `tabItem` i
+        WHERE i.disabled = 0
           {conditions}
-        ORDER BY sle.item_code, sle.warehouse
-    """.format(conditions=conditions), sle_filters, as_dict=True)
+        ORDER BY i.item_code
+    """.format(conditions=item_conditions), item_filters, as_dict=True)
 
-    if not pairs:
+    if not all_items:
         return []
+
+    ## Warehouse filter applied to stock ledger queries
+    warehouse_filters    = {}
+    warehouse_condition  = ""
+    if filters.get("warehouse"):
+        warehouse_condition = " AND warehouse = %(warehouse)s"
+        warehouse_filters["warehouse"] = filters.warehouse
 
     data = []
 
-    for row in pairs:
+    for row in all_items:
         item_code = row.item_code
-        warehouse = row.warehouse
 
-        ## Opening balance before the month starts
+        ## Opening balance before the month across all warehouses (or filtered warehouse)
         opening_data = frappe.db.sql("""
-            SELECT IFNULL(SUM(actual_qty), 0) as qty
+            SELECT IFNULL(SUM(actual_qty), 0) AS qty
             FROM `tabStock Ledger Entry`
             WHERE docstatus = 1
               AND item_code = %(item_code)s
-              AND warehouse = %(warehouse)s
               AND DATE(posting_date) < %(from_date)s
-        """, {"item_code": item_code, "warehouse": warehouse, "from_date": from_date}, as_dict=True)
+              {warehouse_condition}
+        """.format(warehouse_condition=warehouse_condition),
+        {**{"item_code": item_code, "from_date": from_date}, **warehouse_filters},
+        as_dict=True)
 
         opening_qty = opening_data[0].qty if opening_data else 0
 
-        ## Daily net movement within the month
+        ## Daily net movement within the month across all warehouses (or filtered warehouse)
         daily_data = frappe.db.sql("""
-            SELECT DAY(posting_date) as day, SUM(actual_qty) as movement
+            SELECT DAY(posting_date) AS day, SUM(actual_qty) AS movement
             FROM `tabStock Ledger Entry`
             WHERE docstatus = 1
               AND item_code = %(item_code)s
-              AND warehouse = %(warehouse)s
               AND DATE(posting_date) BETWEEN %(from_date)s AND %(to_date)s
+              {warehouse_condition}
             GROUP BY DAY(posting_date)
-        """, {"item_code": item_code, "warehouse": warehouse, "from_date": from_date, "to_date": to_date}, as_dict=True)
+        """.format(warehouse_condition=warehouse_condition),
+        {**{"item_code": item_code, "from_date": from_date, "to_date": to_date}, **warehouse_filters},
+        as_dict=True)
 
         daily_movement = {d.day: d.movement for d in daily_data}
 
         entry = {
             "item_code": item_code,
-            "warehouse": warehouse,
+            ## Show filtered warehouse or fall back to root warehouse group
+            "warehouse": filters.get("warehouse") or "All Warehouses - APL",
         }
 
         ## Cumulative balance per day, future days left blank

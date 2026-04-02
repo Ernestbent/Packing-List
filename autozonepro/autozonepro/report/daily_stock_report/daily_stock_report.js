@@ -54,13 +54,12 @@ frappe.query_reports["Daily Stock Report"] = {
         }
     ],
 
-    // Color zero values grey and negative values red
+    // Color zero values grey, negative values red, future days blank
     "formatter": function(value, row, column, data, default_formatter) {
         value = default_formatter(value, row, column, data);
         if (column.fieldname && column.fieldname.startsWith("day_")) {
             let raw = data[column.fieldname];
             if (raw === null || raw === undefined) {
-                // Future day - show blank
                 value = "";
             } else if (raw === 0) {
                 value = '<span style="color: #bbb;">0</span>';
@@ -79,7 +78,7 @@ frappe.query_reports["Daily Stock Report"] = {
     }
 };
 
-// Build year options from 5 years ago up to 1 year ahead
+// Build year options from 5 years back to 1 year ahead
 function get_year_options() {
     let current_year = frappe.datetime.get_today().split("-")[0];
     let years = [];
