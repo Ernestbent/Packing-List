@@ -63,7 +63,7 @@ def get_data(filters):
     from_date = "{}-{:02d}-01".format(year, month)
     to_date   = "{}-{:02d}-{:02d}".format(year, month, days_in_month)
 
-    ## Build optional filters
+    ## Build optional item filters
     item_conditions = ""
     item_filters    = {}
 
@@ -75,7 +75,7 @@ def get_data(filters):
         item_conditions += " AND i.item_group = %(item_group)s"
         item_filters["item_group"] = filters.item_group
 
-    ## Pull ALL items from tabItem regardless of stock or warehouse
+    ## Pull ALL active items
     all_items = frappe.db.sql("""
         SELECT i.item_code
         FROM `tabItem` i
@@ -87,9 +87,9 @@ def get_data(filters):
     if not all_items:
         return []
 
-    ## Warehouse filter applied to stock ledger queries
-    warehouse_filters    = {}
-    warehouse_condition  = ""
+    ## Warehouse filter for SLE and Bin queries
+    warehouse_filters   = {}
+    warehouse_condition = ""
     if filters.get("warehouse"):
         warehouse_condition = " AND warehouse = %(warehouse)s"
         warehouse_filters["warehouse"] = filters.warehouse
@@ -99,21 +99,20 @@ def get_data(filters):
     for row in all_items:
         item_code = row.item_code
 
-        ## Opening balance before the month across all warehouses (or filtered warehouse)
-        opening_data = frappe.db.sql("""
+        ## Step 1: Get current live balance from tabBin (source of truth)
+        bin_data = frappe.db.sql("""
             SELECT IFNULL(SUM(actual_qty), 0) AS qty
-            FROM `tabStock Ledger Entry`
-            WHERE docstatus = 1
-              AND item_code = %(item_code)s
-              AND DATE(posting_date) < %(from_date)s
+            FROM `tabBin`
+            WHERE item_code = %(item_code)s
               {warehouse_condition}
         """.format(warehouse_condition=warehouse_condition),
-        {**{"item_code": item_code, "from_date": from_date}, **warehouse_filters},
+        {**{"item_code": item_code}, **warehouse_filters},
         as_dict=True)
 
-        opening_qty = opening_data[0].qty if opening_data else 0
+        current_live_qty = bin_data[0].qty if bin_data else 0
 
-        ## Daily net movement within the month across all warehouses (or filtered warehouse)
+        ## Step 2: Get all SLE movements from day 1 of month up to today
+        ## We need this to reconstruct each day's balance by working backwards
         daily_data = frappe.db.sql("""
             SELECT DAY(posting_date) AS day, SUM(actual_qty) AS movement
             FROM `tabStock Ledger Entry`
@@ -128,21 +127,48 @@ def get_data(filters):
 
         daily_movement = {d.day: d.movement for d in daily_data}
 
+        ## Step 3: Get SLE movements AFTER today up to end of month
+        ## These need to be excluded since tabBin already reflects them if any
+        future_data = frappe.db.sql("""
+            SELECT IFNULL(SUM(actual_qty), 0) AS qty
+            FROM `tabStock Ledger Entry`
+            WHERE docstatus = 1
+              AND item_code = %(item_code)s
+              AND DATE(posting_date) > %(today)s
+              AND DATE(posting_date) <= %(to_date)s
+              {warehouse_condition}
+        """.format(warehouse_condition=warehouse_condition),
+        {**{"item_code": item_code, "today": today.strftime("%Y-%m-%d"), "to_date": to_date}, **warehouse_filters},
+        as_dict=True)
+
+        future_qty = future_data[0].qty if future_data else 0
+
+        ## Step 4: Balance at end of today = live bin qty minus any future movements
+        balance_at_today = current_live_qty - future_qty
+
+        ## Step 5: Work backwards from today to day 1 to get each day's closing balance
+        ## day_balances[day] = closing balance at end of that day
+        day_balances = {}
+        running = balance_at_today
+
+        for day in range(last_day_to_show, 0, -1):
+            day_balances[day] = running
+            ## Subtract this day's movement to get the previous day's closing balance
+            running -= daily_movement.get(day, 0)
+
         entry = {
             "item_code": item_code,
             ## Show filtered warehouse or fall back to root warehouse group
             "warehouse": filters.get("warehouse") or "All Warehouses - APL",
         }
 
-        ## Cumulative balance per day, future days left blank
-        running_balance = opening_qty
+        ## Fill in each day - future days blank, past days from backwards calculation
         for day in range(1, days_in_month + 1):
             if day > last_day_to_show:
                 ## Future day - leave empty
                 entry["day_{}".format(day)] = None
             else:
-                running_balance += daily_movement.get(day, 0)
-                entry["day_{}".format(day)] = int(round(running_balance, 0))
+                entry["day_{}".format(day)] = int(round(day_balances.get(day, 0), 0))
 
         data.append(entry)
 
