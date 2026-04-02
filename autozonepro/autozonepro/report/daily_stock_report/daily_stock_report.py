@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 import calendar
+from datetime import date
 
 
 def execute(filters=None):
@@ -36,6 +37,7 @@ def get_columns(filters):
         },
     ]
 
+    ## Add one column per day in the selected month
     for day in range(1, days_in_month + 1):
         columns.append({
             "label": str(day),
@@ -52,15 +54,22 @@ def get_data(filters):
     year = int(filters.year)
     days_in_month = calendar.monthrange(year, month)[1]
 
+    ## Cap the last visible day to today if viewing the current month
+    today = date.today()
+    last_day_to_show = days_in_month
+    if year == today.year and month == today.month:
+        last_day_to_show = today.day
+
     from_date = "{}-{:02d}-01".format(year, month)
-    to_date = "{}-{:02d}-{:02d}".format(year, month, days_in_month)
+    to_date   = "{}-{:02d}-{:02d}".format(year, month, days_in_month)
 
     conditions = ""
     sle_filters = {
         "from_date": from_date,
-        "to_date": to_date
+        "to_date":   to_date
     }
 
+    ## Build optional filters
     if filters.get("warehouse"):
         conditions += " AND sle.warehouse = %(warehouse)s"
         sle_filters["warehouse"] = filters.warehouse
@@ -73,7 +82,7 @@ def get_data(filters):
         conditions += " AND i.item_group = %(item_group)s"
         sle_filters["item_group"] = filters.item_group
 
-    # Get distinct item + warehouse combinations active in this month
+    ## Get distinct item + warehouse combinations active in this month
     pairs = frappe.db.sql("""
         SELECT DISTINCT sle.item_code, sle.warehouse
         FROM `tabStock Ledger Entry` sle
@@ -93,7 +102,7 @@ def get_data(filters):
         item_code = row.item_code
         warehouse = row.warehouse
 
-        # Opening balance before the month
+        ## Opening balance before the month starts
         opening_data = frappe.db.sql("""
             SELECT IFNULL(SUM(actual_qty), 0) as qty
             FROM `tabStock Ledger Entry`
@@ -105,7 +114,7 @@ def get_data(filters):
 
         opening_qty = opening_data[0].qty if opening_data else 0
 
-        # Daily net movement within the month
+        ## Daily net movement within the month
         daily_data = frappe.db.sql("""
             SELECT DAY(posting_date) as day, SUM(actual_qty) as movement
             FROM `tabStock Ledger Entry`
@@ -123,11 +132,15 @@ def get_data(filters):
             "warehouse": warehouse,
         }
 
-        # Cumulative balance per day (forward-fill on days with no movement)
+        ## Cumulative balance per day, future days left blank
         running_balance = opening_qty
         for day in range(1, days_in_month + 1):
-            running_balance += daily_movement.get(day, 0)
-            entry["day_{}".format(day)] = int(round(running_balance, 0))
+            if day > last_day_to_show:
+                ## Future day - leave empty
+                entry["day_{}".format(day)] = None
+            else:
+                running_balance += daily_movement.get(day, 0)
+                entry["day_{}".format(day)] = int(round(running_balance, 0))
 
         data.append(entry)
 
