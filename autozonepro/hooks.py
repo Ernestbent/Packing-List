@@ -63,11 +63,11 @@ doctype_js = {
     ]
 }
 
-doctype_list_js = {
-    "Sales Order" : [
-        "public/js/generate_gate_pass.js"
-        ]
-}
+# doctype_list_js = {
+#     "Sales Order" : [
+#         "public/js/generate_gate_pass.js"
+#         ]
+# }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
@@ -167,9 +167,9 @@ doc_events = {
     "Pick List": {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
     },
-    "Sales Order":{
-        "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
-    }
+    # "Sales Order":{
+    #     "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
+    # }
 }
 
 # Scheduled Tasks
