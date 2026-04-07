@@ -13,7 +13,7 @@ frappe.after_ajax(() => {
             // Add Generate Gate Pass button to list view toolbar
             listview.page.add_inner_button(
                 "Generate Gate Pass",
-                () => show_gate_pass_dialog()
+                () => show_gate_pass_dialog(listview)
             );
         }
     });
@@ -90,7 +90,7 @@ frappe.ui.form.on("Sales Order", {
 });
 
 // Main dialog for creating a gate pass
-function show_gate_pass_dialog() {
+function show_gate_pass_dialog(listview) {
     let gate_pass_items = [];
 
     let d = new frappe.ui.Dialog({
@@ -142,6 +142,8 @@ function show_gate_pass_dialog() {
         }
     });
 
+    d._missing_sales_orders = [];
+
     // Widen the dialog
     d.$wrapper.find(".modal-dialog").css({
         "max-width": "800px",
@@ -180,6 +182,10 @@ function show_gate_pass_dialog() {
     // Render empty items table initially
     render_items_table(d, gate_pass_items);
 
+    if (listview) {
+        preload_selected_sales_orders(listview, d, gate_pass_items);
+    }
+
     // Debounced search input handler
     let search_timer;
     d.fields_dict.search_html.$wrapper.on("input", "#gp-search-input", function() {
@@ -217,6 +223,123 @@ function show_gate_pass_dialog() {
     };
 
     d.show();
+}
+
+function preload_selected_sales_orders(listview, dialog, gate_pass_items) {
+    const selected_orders = (listview.get_checked_items() || [])
+        .map(row => row.name)
+        .filter(Boolean);
+
+    if (!selected_orders.length) {
+        return;
+    }
+
+    dialog.fields_dict.items_html.$wrapper.html(`
+        <div style="text-align:center;padding:20px;color:#888;">
+            Loading selected Sales Orders...
+        </div>
+    `);
+
+    frappe.call({
+        method: "frappe.client.get_list",
+        args: {
+            doctype: "Packing List",
+            filters: [
+                ["custom_sales_order", "in", selected_orders],
+                ["docstatus", "=", 1]
+            ],
+            fields: [
+                "name",
+                "custom_sales_order",
+                "custom_customer",
+                "custom_date",
+                "total_boxes",
+                "total_qty"
+            ],
+            limit_page_length: selected_orders.length
+        },
+        callback: function(r) {
+            const packing_lists = r.message || [];
+            const packing_by_sales_order = {};
+
+            packing_lists.forEach(pl => {
+                if (!packing_by_sales_order[pl.custom_sales_order]) {
+                    packing_by_sales_order[pl.custom_sales_order] = pl;
+                }
+            });
+
+            const missing_orders = [];
+
+            selected_orders.forEach(sales_order => {
+                const packing_list = packing_by_sales_order[sales_order];
+
+                if (!packing_list) {
+                    missing_orders.push(sales_order);
+                    return;
+                }
+
+                if (gate_pass_items.some(item => item.so === sales_order)) {
+                    return;
+                }
+
+                gate_pass_items.push({
+                    pl_name: packing_list.name,
+                    so: packing_list.custom_sales_order,
+                    customer: packing_list.custom_customer,
+                    date: packing_list.custom_date,
+                    boxes: packing_list.total_boxes,
+                    sku: packing_list.total_qty
+                });
+            });
+
+            render_items_table(dialog, gate_pass_items);
+            set_gate_pass_create_state(dialog, missing_orders);
+
+            if (gate_pass_items.length) {
+                frappe.show_alert({
+                    message: __("Loaded {0} selected Sales Order(s) into Gate Pass.", [gate_pass_items.length]),
+                    indicator: "green"
+                });
+            }
+
+            if (missing_orders.length) {
+                frappe.msgprint({
+                    title: __("Packing List Missing"),
+                    indicator: "orange",
+                    message: __(
+                        "These Sales Orders were selected but have no submitted Packing List yet:<br><br>{0}",
+                        [missing_orders.map(order => frappe.utils.escape_html(order)).join("<br>")]
+                    )
+                });
+            }
+        },
+        error: function() {
+            render_items_table(dialog, gate_pass_items);
+            set_gate_pass_create_state(dialog, selected_orders);
+            frappe.msgprint({
+                title: __("Unable to Load Selected Orders"),
+                indicator: "red",
+                message: __("There was a problem loading the selected Sales Orders into the Gate Pass dialog.")
+            });
+        }
+    });
+}
+
+function set_gate_pass_create_state(dialog, missing_orders) {
+    dialog._missing_sales_orders = missing_orders || [];
+
+    const primary_btn = dialog.get_primary_btn();
+    if (!primary_btn || !primary_btn.length) {
+        return;
+    }
+
+    if (dialog._missing_sales_orders.length) {
+        primary_btn.prop("disabled", true);
+        primary_btn.attr("title", __("All selected Sales Orders must have submitted Packing Lists before creating a Gate Pass."));
+    } else {
+        primary_btn.prop("disabled", false);
+        primary_btn.removeAttr("title");
+    }
 }
 
 // Search packing list by customer name and populate dropdown
@@ -414,6 +537,18 @@ function render_items_table(dialog, items) {
 
 // Create gate pass doc and stamp gate pass name on each linked sales order
 function create_gate_pass(dialog, values, items) {
+    if ((dialog._missing_sales_orders || []).length) {
+        frappe.msgprint({
+            title: __("Packing List Required"),
+            indicator: "red",
+            message: __(
+                "Cannot create Gate Pass because these selected Sales Orders do not have submitted Packing Lists:<br><br>{0}",
+                [(dialog._missing_sales_orders || []).map(order => frappe.utils.escape_html(order)).join("<br>")]
+            )
+        });
+        return;
+    }
+
     if (items.length === 0) {
         frappe.msgprint({
             title: "No Customers Added",

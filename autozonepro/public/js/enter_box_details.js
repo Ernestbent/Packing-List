@@ -4,7 +4,8 @@
 // box_item_code is stored in custom_box_summary for reporting purposes
 const BOX_ITEM_MAP = {
     "3 PLY": "3 PLY. 585*385*420 MM = BROWN = 425GSM = PLAIN = GLUE TYPE",
-    "5 PLY": "5 PLY. 585*385*420 MM = BROWN = 730GSM = PLAIN = GLUE TYPE"
+    "5 PLY": "5 PLY. 585*385*420 MM = BROWN = 730GSM = PLAIN = GLUE TYPE",
+    "Company Box": ""
 };
 
 frappe.ui.form.on('Packing List', {
@@ -121,7 +122,7 @@ function open_pack_dialog(frm) {
                 fieldtype: 'Select',
                 label: __('Box Type'),
                 reqd: 1,
-                options: '\n3 PLY\n5 PLY'
+                options: '\n3 PLY\n5 PLY\nCompany Box'
             },
             {
                 fieldname: 'box_number',

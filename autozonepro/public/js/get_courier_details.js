@@ -31,7 +31,7 @@ frappe.ui.form.on("Sales Order", {
                                     method: "frappe.client.get",
                                     args: { doctype: "Packing List", name: pl_name },
                                     callback: function(pl_doc_res) {
-                                        let rows = is_central ? [] : (pl_doc_res.message.custom_box_summary || []);
+                                        let rows = pl_doc_res.message.custom_box_summary || [];
                                         show_courier_dialog(frm, resolve, reject, pl_name, rows, is_central);
                                     }
                                 });
@@ -155,9 +155,10 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
     function save_draft(d, expense_overrides) {
         try {
             let draft = {
-                first_name: d.get_value("first_name") || "",
+                driver: d.get_value("driver") || "",
                 tel_no: d.get_value("tel_no") || "",
                 vehicle_no: d.get_value("vehicle_no") || "",
+                has_expense: d.get_value("has_expense") || 0,
                 expenses: expense_overrides || {}
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
@@ -232,8 +233,8 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
         { fieldname: "draft_notice", fieldtype: "HTML", options: draft_banner },
         { fieldtype: "Section Break", label: "Driver Details" },
         {
-            label: "Name", fieldname: "first_name", fieldtype: "Data",
-            reqd: 1, default: saved_draft.first_name || ""
+            label: "Driver", fieldname: "driver", fieldtype: "Link",
+            options: "Driver Details", default: saved_draft.driver || ""
         },
         { fieldtype: "Column Break" },
         {
@@ -247,7 +248,21 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
     ];
 
     // Only show Shipping Costs for non-Central customers
-    if (!is_central) {
+    if (is_central) {
+        fields.push(
+            { fieldtype: "Section Break", label: "Expense Option" },
+            {
+                fieldtype: "Check",
+                fieldname: "has_expense",
+                label: "Has Expense",
+                default: saved_draft.has_expense ? 1 : 0
+            },
+            {
+                fieldname: "box_summary_html", fieldtype: "HTML",
+                options: ""
+            }
+        );
+    } else {
         fields.push(
             { fieldtype: "Section Break", label: "Shipping Costs" },
             {
@@ -262,13 +277,15 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
         fields: fields,
         primary_action_label: "Create & Proceed",
         primary_action(values) {
-            if (!values.first_name || !values.tel_no || !values.vehicle_no) {
+            if (!values.driver || !values.tel_no || !values.vehicle_no) {
                 frappe.msgprint({ title: __("Required"), indicator: "red", message: __("Please fill all required fields.") });
                 return;
             }
 
             let updated_rows = [];
-            if (!is_central) {
+            const should_capture_expense = !is_central || !!values.has_expense;
+
+            if (should_capture_expense) {
                 updated_rows = box_rows.map((row, idx) => {
                     let input = d.$wrapper.find(`.expense-input[data-idx="${idx}"]`);
                     let expense_val = input.length ? parseFloat(input.val()) || 0 : (row.expense || 0);
@@ -282,7 +299,7 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
                 method: "autozonepro.autozonepro.custom_scripts.get_courier_details.create_courier_details",
                 args: {
                     sales_order: frm.doc.name,
-                    first_name: values.first_name,
+                    first_name: values.driver,
                     tel_no: values.tel_no,
                     vehicle_no: values.vehicle_no,
                     packing_list: pl_name || "",
@@ -313,14 +330,14 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
         },
         secondary_action_label: "Cancel",
         secondary_action() {
-            if (!is_central) {
-                let expense_overrides = {};
+            let expense_overrides = {};
+            if (!is_central || d.get_value("has_expense")) {
                 box_rows.forEach((row, idx) => {
                     let input = d.$wrapper.find(`.expense-input[data-idx="${idx}"]`);
                     if (input.length) expense_overrides[idx] = parseFloat(input.val()) || 0;
                 });
-                save_draft(d, expense_overrides);
             }
+            save_draft(d, expense_overrides);
             d.hide();
             frappe.show_alert({ message: __("Draft saved. Your entries will be restored next time."), indicator: "blue" });
             reject();
@@ -329,19 +346,83 @@ function show_courier_dialog(frm, resolve, reject, pl_name, box_rows, is_central
 
     d.$wrapper.find(".modal-dialog").css({ "max-width": "800px", "width": "90%" });
 
-    d.fields_dict.first_name.$input.on("input", function() {
-        if (!is_central) save_draft(d, get_current_expenses(d, box_rows));
-    });
+    function render_expense_section() {
+        if (!d.fields_dict.box_summary_html) return;
+
+        const wrapper = d.fields_dict.box_summary_html.$wrapper;
+
+        if (!is_central || d.get_value("has_expense")) {
+            wrapper.html(pl_label + build_box_table(box_rows));
+        } else {
+            wrapper.html(`
+                <div style="margin-top:8px;padding:12px;border:1px dashed #d1d8dd;border-radius:6px;color:#777;font-size:13px;">
+                    Tick <b>Has Expense</b> to enter transport expenses for this Central customer.
+                </div>
+            `);
+        }
+    }
+
+    function get_driver_tel(driver_doc) {
+        return driver_doc.tel_no || "";
+    }
+
+    function fetch_driver_details(driver_name) {
+        if (!driver_name) {
+            return;
+        }
+
+        frappe.call({
+            method: "frappe.client.get",
+            args: {
+                doctype: "Driver Details",
+                name: driver_name
+            },
+            callback: function(r) {
+                const driver_doc = r.message;
+                if (!driver_doc) {
+                    return;
+                }
+
+                d.set_value("tel_no", get_driver_tel(driver_doc));
+
+                save_draft(d, (!is_central || d.get_value("has_expense")) ? get_current_expenses(d, box_rows) : {});
+            }
+        });
+    }
+
+    render_expense_section();
+
+    if (d.fields_dict.driver) {
+        d.fields_dict.driver.df.onchange = function() {
+            fetch_driver_details(d.get_value("driver"));
+        };
+
+        d.fields_dict.driver.$input.on("change", function() {
+            fetch_driver_details(d.get_value("driver"));
+        });
+    }
+
     d.fields_dict.tel_no.$input.on("input", function() {
-        if (!is_central) save_draft(d, get_current_expenses(d, box_rows));
+        save_draft(d, (!is_central || d.get_value("has_expense")) ? get_current_expenses(d, box_rows) : {});
     });
     d.fields_dict.vehicle_no.$input.on("input", function() {
-        if (!is_central) save_draft(d, get_current_expenses(d, box_rows));
+        save_draft(d, (!is_central || d.get_value("has_expense")) ? get_current_expenses(d, box_rows) : {});
     });
+
+    if (is_central && d.fields_dict.has_expense) {
+        d.fields_dict.has_expense.$input.on("change", function() {
+            render_expense_section();
+            save_draft(d, d.get_value("has_expense") ? get_current_expenses(d, box_rows) : {});
+        });
+    }
 
     d.show();
 
-    if (!is_central) {
+    if (saved_draft.driver && !saved_draft.tel_no) {
+        fetch_driver_details(saved_draft.driver);
+    }
+
+    if (!is_central || (is_central && d.fields_dict.has_expense)) {
         d.$wrapper.on("input", ".expense-input", function() {
             save_draft(d, get_current_expenses(d, box_rows));
         });

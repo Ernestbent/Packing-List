@@ -164,6 +164,9 @@ doc_events = {
     "Sales Invoice": {
         "on_submit": "autozonepro.autozonepro.custom_scripts.sales_invoice_hooks.on_submit"
     },
+    "Gate Pass": {
+        "on_submit": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.on_submit"
+    },
     "Pick List": {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
     },
