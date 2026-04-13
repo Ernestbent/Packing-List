@@ -178,23 +178,18 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"autozonepro.tasks.all"
-# 	],
-# 	"daily": [
-# 		"autozonepro.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"autozonepro.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"autozonepro.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"autozonepro.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+    "cron": {
+        "0 7 * * *": [
+            "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_morning_pending_credit_notifications",
+            "autozonepro.autozonepro.custom_scripts.send_morning_on_hold_notifications.send_morning_on_hold_notifications",
+        ],
+        "0 18 * * *": [
+            "autozonepro.autozonepro.custom_scripts.send_notifications_pending_orders_eve.send_evening_pending_orders_notifications",
+            "autozonepro.autozonepro.custom_scripts.send_evening_on_hold_notifications.send_evening_on_hold_notifications",
+        ],
+    }
+}
 
 # Testing
 # -------

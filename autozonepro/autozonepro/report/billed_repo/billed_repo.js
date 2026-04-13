@@ -59,6 +59,12 @@ frappe.query_reports["Billed Repo"] = {
                     }
                 };
             }
+        },
+        {
+            fieldname: "show_all_entries",
+            label: __("Show All Entries"),
+            fieldtype: "Check",
+            default: 1
         }
     ]
 };
