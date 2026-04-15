@@ -22,10 +22,11 @@ def send_morning_pending_credit_notifications():
     ## Get all orders in Pending Credit Approval state
     pending_orders = frappe.get_all(
         "Sales Order",
-        filters={
-            "workflow_state": "Pending Credit Approval",
-            "docstatus": 1
-        },
+        filters=[
+            ["workflow_state", "=", "Pending Credit Approval"],
+            ["docstatus", "=", 1],
+            ["status", "not in", ["Hold", "On Hold", "Closed"]]
+        ],
         fields=["name", "transaction_date", "customer", "owner", "modified"],
         order_by="modified desc"
     )
