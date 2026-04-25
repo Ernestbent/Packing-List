@@ -175,6 +175,10 @@ doc_events = {
     }
 }
 
+override_doctype_class = {
+    "Customer": "autozonepro.autozonepro.overrides.customer.CustomCustomer"
+}
+
 # Scheduled Tasks
 # ---------------
 
