@@ -51,7 +51,6 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-            ${{ runner.os }}-
 
       - name: Get yarn cache directory
         id: yarn-cache-dir-path
@@ -75,7 +74,6 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install frappe-bench
-          # Initialize bench with Frappe v15
           bench init --frappe-branch version-15 --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
       - name: Configure database
@@ -88,45 +86,27 @@ jobs:
         env:
           CI: 'Yes'
         run: |
-          # Activate virtual environment
           source env/bin/activate
-          
-          # Install ERPNext from version-15 branch
           echo "Installing ERPNext..."
           bench get-app --branch version-15 erpnext
-          
-          # Install your custom app
           echo "Installing autozonepro..."
           bench get-app autozonepro $GITHUB_WORKSPACE
-          
-          # Setup requirements
           bench setup requirements --dev
-          
           echo "Apps installed successfully"
 
       - name: Create test site and install apps
         working-directory: /home/runner/frappe-bench
         run: |
-          # Activate virtual environment
           source env/bin/activate
-          
-          # Create new site
           echo "Creating test site..."
           bench new-site --db-root-password root --admin-password admin test_site
-          
-          # Install ERPNext first (contains Pick List, Sales Order, Delivery Note, etc.)
           echo "Installing ERPNext on site..."
           bench --site test_site install-app erpnext
-          
-          # Then install your custom app
           echo "Installing autozonepro on site..."
           bench --site test_site install-app autozonepro
-          
-          # Run migrations
           echo "Running migrations..."
           bench --site test_site migrate
-          
-          echo "Site setup completed successfully"
+          echo "Site setup completed"
 
       - name: Build assets
         working-directory: /home/runner/frappe-bench
@@ -141,4 +121,5 @@ jobs:
         run: |
           source env/bin/activate
           bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app autozonepro --verbose
+          # Run tests without --verbose (use verbosity parameter if needed)
+          bench --site test_site run-tests --app autozonepro
