@@ -33,7 +33,6 @@ jobs:
       - name: Clone
         uses: actions/checkout@v4
 
-      ## Python 3.10 for Frappe v15 compatibility
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -45,55 +44,101 @@ jobs:
           node-version: 18
           check-latest: true
 
-      ## Install system dependencies
-      - name: Install MariaDB Client and other dependencies
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            ${{ runner.os }}-
+
+      - name: Get yarn cache directory
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache yarn
+        uses: actions/cache@v4
+        id: yarn-cache
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y mariadb-client redis-server git curl
 
-      ## Initialize bench environment with specific Frappe version
       - name: Setup bench environment
         run: |
-          pip install --upgrade pip
+          pip install --upgrade pip setuptools wheel
           pip install frappe-bench
-          
-          # Initialize bench with Frappe branch v15
+          # Initialize bench with Frappe v15
           bench init --frappe-branch version-15 --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
-      ## Configure MariaDB charset
       - name: Configure database
         run: |
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      ## Install autozonepro app and dependencies
-      - name: Install autozonepro app
+      - name: Install ERPNext and autozonepro apps
         working-directory: /home/runner/frappe-bench
         env:
           CI: 'Yes'
         run: |
-          # Get the app from the current repository
+          # Activate virtual environment
+          source env/bin/activate
+          
+          # Install ERPNext from version-15 branch
+          echo "Installing ERPNext..."
+          bench get-app --branch version-15 erpnext
+          
+          # Install your custom app
+          echo "Installing autozonepro..."
           bench get-app autozonepro $GITHUB_WORKSPACE
+          
+          # Setup requirements
           bench setup requirements --dev
+          
+          echo "Apps installed successfully"
 
-      ## Create test site and install apps
-      - name: Create and setup test site
+      - name: Create test site and install apps
         working-directory: /home/runner/frappe-bench
         run: |
+          # Activate virtual environment
+          source env/bin/activate
+          
+          # Create new site
+          echo "Creating test site..."
           bench new-site --db-root-password root --admin-password admin test_site
+          
+          # Install ERPNext first (contains Pick List, Sales Order, Delivery Note, etc.)
+          echo "Installing ERPNext on site..."
+          bench --site test_site install-app erpnext
+          
+          # Then install your custom app
+          echo "Installing autozonepro on site..."
           bench --site test_site install-app autozonepro
+          
+          # Run migrations
+          echo "Running migrations..."
+          bench --site test_site migrate
+          
+          echo "Site setup completed successfully"
 
-      ## Build assets
       - name: Build assets
         working-directory: /home/runner/frappe-bench
         run: |
+          source env/bin/activate
           bench build
 
-      ## Run tests
       - name: Run tests
         working-directory: /home/runner/frappe-bench
         env:
           TYPE: server
         run: |
+          source env/bin/activate
           bench --site test_site set-config allow_tests true
           bench --site test_site run-tests --app autozonepro --verbose
