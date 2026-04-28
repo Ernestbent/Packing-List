@@ -131,8 +131,4 @@ jobs:
         run: |
           source env/bin/activate
           bench --site test_site set-config allow_tests true
-          bench --site test_site execute "frappe.client.insert" --kwargs "{'doc': {'doctype': 'Warehouse Type', 'name': 'Transit'}}" || true
-          bench --site test_site execute "frappe.client.insert" --kwargs "{'doc': {'doctype': 'Customer Group', 'customer_group_name': 'All Customer Groups', 'is_group': 1}}" || true
-          bench --site test_site execute "frappe.client.insert" --kwargs "{'doc': {'doctype': 'Supplier Group', 'supplier_group_name': 'All Supplier Groups', 'is_group': 1}}" || true
-          bench --site test_site execute "frappe.client.insert" --kwargs "{'doc': {'doctype': 'Territory', 'territory_name': 'All Territories', 'is_group': 1}}" || true
-          bench --site test_site run-tests --app autozonepro
+          bench --site test_site run-tests --app autozonepro --skip-test-records
