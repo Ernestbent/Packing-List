@@ -94,19 +94,32 @@ jobs:
           bench setup requirements --dev
           echo "Apps installed successfully"
 
-      - name: Create test site and install apps
+      - name: Create test site and delete Transit warehouse type
         working-directory: /home/runner/frappe-bench
         run: |
           source env/bin/activate
+          
+          # Create site
           echo "Creating test site..."
           bench new-site --db-root-password root --admin-password admin test_site
-          echo "Installing ERPNext on site..."
+          
+          # Delete Transit warehouse type if it exists
+          echo "Deleting Transit warehouse type..."
+          bench --site test_site execute "frappe.delete_doc('Warehouse Type', 'Transit', force=True)" || echo "Transit warehouse type not found - continuing"
+          
+          # Install ERPNext
+          echo "Installing ERPNext..."
           bench --site test_site install-app erpnext
-          echo "Installing autozonepro on site..."
+          
+          # Install your app
+          echo "Installing autozonepro..."
           bench --site test_site install-app autozonepro
+          
+          # Run migrations
           echo "Running migrations..."
           bench --site test_site migrate
-          echo "Site setup completed"
+          
+          echo "Site setup completed successfully"
 
       - name: Build assets
         working-directory: /home/runner/frappe-bench
@@ -121,5 +134,4 @@ jobs:
         run: |
           source env/bin/activate
           bench --site test_site set-config allow_tests true
-          # Run tests without --verbose (use verbosity parameter if needed)
           bench --site test_site run-tests --app autozonepro
