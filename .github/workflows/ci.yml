@@ -94,7 +94,7 @@ jobs:
           bench setup requirements --dev
           echo "Apps installed successfully"
 
-      - name: Create test site and fix Transit warehouse type
+      - name: Create test site and create Transit warehouse type
         working-directory: /home/runner/frappe-bench
         run: |
           source env/bin/activate
@@ -103,41 +103,40 @@ jobs:
           echo "Creating test site..."
           bench new-site --db-root-password root --admin-password admin test_site
           
-          # Create the missing Transit warehouse type BEFORE ERPNext tries to use it
+          # Create the Transit warehouse type using a Python script file
           echo "Creating Transit warehouse type..."
-          bench --site test_site execute -c '
+          cat > /tmp/create_warehouse_types.py << 'EOF'
           import frappe
           
-          # Create Warehouse Type if it doesn't exist
-          if not frappe.db.exists("DocType", "Warehouse Type"):
-              print("Warehouse Type doctype not found yet")
-          else:
-              # Create Transit warehouse type
-              if not frappe.db.exists("Warehouse Type", "Transit"):
-                  transit_type = frappe.get_doc({
-                      "doctype": "Warehouse Type",
-                      "warehouse_type_name": "Transit"
-                  })
-                  transit_type.insert(ignore_permissions=True)
-                  print("✓ Created Transit warehouse type")
-              else:
-                  print("✓ Transit warehouse type already exists")
+          def execute():
+              # Create Warehouse Type doctype if it doesn't exist (it should exist in ERPNext)
+              warehouse_types = ["Transit", "Goods In", "Goods Out", "Stores"]
               
-              # Also create other common warehouse types
-              other_types = ["Goods In", "Goods Out", "Stores"]
-              for wt_name in other_types:
-                  if not frappe.db.exists("Warehouse Type", wt_name):
-                      wt_doc = frappe.get_doc({
-                          "doctype": "Warehouse Type",
-                          "warehouse_type_name": wt_name
-                      })
-                      wt_doc.insert(ignore_permissions=True)
-                      print(f"✓ Created {wt_name} warehouse type")
+              for wt_name in warehouse_types:
+                  try:
+                      if not frappe.db.exists("Warehouse Type", wt_name):
+                          wt_doc = frappe.get_doc({
+                              "doctype": "Warehouse Type",
+                              "warehouse_type_name": wt_name
+                          })
+                          wt_doc.insert(ignore_permissions=True)
+                          print(f"✓ Created {wt_name} warehouse type")
+                      else:
+                          print(f"✓ {wt_name} warehouse type already exists")
+                  except Exception as e:
+                      print(f"Error creating {wt_name}: {str(e)}")
               
               frappe.db.commit()
-          '
+              print("Warehouse types setup complete")
           
-          # Now install ERPNext (it will find the Transit warehouse type)
+          if __name__ == "__main__":
+              execute()
+          EOF
+          
+          # Run the script
+          bench --site test_site execute /tmp/create_warehouse_types.py
+          
+          # Install ERPNext (it will find the Transit warehouse type)
           echo "Installing ERPNext..."
           bench --site test_site install-app erpnext
           
