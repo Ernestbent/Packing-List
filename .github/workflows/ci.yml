@@ -13,8 +13,6 @@ concurrency:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     name: Server
 
     services:
@@ -44,15 +42,10 @@ jobs:
       - name: Clone
         uses: actions/checkout@v4
 
-      - name: Find tests
-        run: |
-          echo "Finding tests"
-          grep -rn "def test" . || true
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -67,37 +60,47 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Get yarn cache directory path
-        id: yarn-cache-dir-path
-        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
-
       - name: Cache yarn
         uses: actions/cache@v4
         with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          path: ~/.cache/yarn
           key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
           restore-keys: |
             ${{ runner.os }}-yarn-
 
-      - name: Setup Bench
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client redis-tools
+
+      - name: Install Bench
         run: |
           pip install frappe-bench
+
+      - name: Init Bench
+        run: |
           bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
-      - name: Setup DB
+      - name: Configure DB
         run: |
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      - name: Install App
+      - name: Install App + Frappe
         working-directory: /home/runner/frappe-bench
         env:
           CI: "Yes"
         run: |
+          bench get-app frappe --branch version-15
           bench get-app autozonepro $GITHUB_WORKSPACE
+
           bench setup requirements --dev
+
           bench new-site test_site --db-root-password root --admin-password admin
+
+          bench --site test_site install-app frappe
           bench --site test_site install-app autozonepro
+
           bench --site test_site migrate
           bench build
 
