@@ -71,17 +71,15 @@ jobs:
 
       ## Install system dependencies
       - name: Install MariaDB Client
-        run: sudo apt-get install -y mariadb-client-10.6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
 
       ## Initialize bench environment
       - name: Setup bench environment
         run: |
           pip install --upgrade pip setuptools wheel
           pip install frappe-bench
-
-      ## Create bench directory
-      - name: Initialize bench
-        run: |
           bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
       ## Configure MariaDB charset
@@ -90,12 +88,21 @@ jobs:
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      ## Install Frappe using pip with specific version (avoids syntax error)
-      - name: Install Frappe v15.26.0
+      ## Clone Frappe and patch syntax error before pip install
+      - name: Install Frappe with patch
         working-directory: /home/runner/frappe-bench
+        env:
+          CI: 'Yes'
         run: |
-          source env/bin/activate
-          pip install frappe==15.26.0
+          ## Clone latest Frappe v15
+          bench get-app frappe --branch version-15
+          
+          ## Remove Python 3.12+ type annotation syntax that breaks Python 3.10
+          sed -i '/^type ConfType/,/^$/d' apps/frappe/frappe/__init__.py
+          
+          ## Verify the line was removed
+          echo "Patched frappe/__init__.py"
+          grep -n "ConfType" apps/frappe/frappe/__init__.py || echo "Patch successful - ConfType removed"
 
       ## Install autozonepro app and dependencies
       - name: Install autozonepro app
