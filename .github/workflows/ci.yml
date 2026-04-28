@@ -45,43 +45,20 @@ jobs:
           node-version: 18
           check-latest: true
 
-      ## Cache pip dependencies
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-            ${{ runner.os }}-
-
-      ## Cache yarn dependencies
-      - name: Get yarn cache directory
-        id: yarn-cache-dir-path
-        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
-
-      - name: Cache yarn
-        uses: actions/cache@v4
-        id: yarn-cache
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-
       ## Install system dependencies
-      - name: Install MariaDB Client
+      - name: Install MariaDB Client and other dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y mariadb-client
+          sudo apt-get install -y mariadb-client redis-server git curl
 
-      ## Initialize bench environment
+      ## Initialize bench environment with specific Frappe version
       - name: Setup bench environment
         run: |
-          pip install --upgrade pip setuptools wheel
+          pip install --upgrade pip
           pip install frappe-bench
-          ## Initialize bench (will auto-clone Frappe, we'll override it after)
-          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
+          
+          # Initialize bench with Frappe branch v15
+          bench init --frappe-branch version-15 --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
       ## Configure MariaDB charset
       - name: Configure database
@@ -89,27 +66,13 @@ jobs:
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      ## Remove auto-cloned Frappe and install specific version
-      - name: Install Frappe v15.26.0
-        working-directory: /home/runner/frappe-bench
-        run: |
-          ## Remove the auto-cloned Frappe that has syntax errors
-          rm -rf apps/frappe
-          
-          ## Create apps directory if missing
-          mkdir -p apps
-          
-          ## Activate venv and install specific Frappe version
-          source env/bin/activate
-          pip install frappe==15.26.0 --upgrade --target apps/frappe
-          echo "Installed Frappe v15.26.0 to apps/frappe"
-
       ## Install autozonepro app and dependencies
       - name: Install autozonepro app
         working-directory: /home/runner/frappe-bench
         env:
           CI: 'Yes'
         run: |
+          # Get the app from the current repository
           bench get-app autozonepro $GITHUB_WORKSPACE
           bench setup requirements --dev
 
@@ -118,9 +81,7 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           bench new-site --db-root-password root --admin-password admin test_site
-          bench --site test_site install-app frappe
           bench --site test_site install-app autozonepro
-          bench --site test_site migrate
 
       ## Build assets
       - name: Build assets
