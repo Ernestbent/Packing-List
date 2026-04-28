@@ -88,21 +88,14 @@ jobs:
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      ## Clone Frappe and patch syntax error before pip install
-      - name: Install Frappe with patch
+      ## Install specific Frappe version (15.26.0 - last stable without type syntax)
+      - name: Install Frappe v15.26.0
         working-directory: /home/runner/frappe-bench
-        env:
-          CI: 'Yes'
         run: |
-          ## Clone latest Frappe v15
-          bench get-app frappe --branch version-15
-          
-          ## Remove Python 3.12+ type annotation syntax that breaks Python 3.10
-          sed -i '/^type ConfType/,/^$/d' apps/frappe/frappe/__init__.py
-          
-          ## Verify the line was removed
-          echo "Patched frappe/__init__.py"
-          grep -n "ConfType" apps/frappe/frappe/__init__.py || echo "Patch successful - ConfType removed"
+          source env/bin/activate
+          ## Install exact Frappe version instead of from git
+          pip install frappe==15.26.0 --upgrade
+          echo "Installed Frappe v15.26.0"
 
       ## Install autozonepro app and dependencies
       - name: Install autozonepro app
