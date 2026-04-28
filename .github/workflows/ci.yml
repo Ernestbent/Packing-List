@@ -10,6 +10,8 @@ concurrency:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
     name: Server
     services:
       redis-cache:
@@ -26,11 +28,7 @@ jobs:
           MYSQL_ROOT_PASSWORD: root
         ports:
           - 3306:3306
-        options: >-
-          --health-cmd="mariadb-admin ping -h localhost -proot"
-          --health-interval=5s
-          --health-timeout=2s
-          --health-retries=3
+        options: --health-cmd="mariadb-admin ping -h localhost -proot" --health-interval=5s --health-timeout=2s --health-retries=3
     steps:
       - name: Clone
         uses: actions/checkout@v4
@@ -45,7 +43,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          check-latest: true
 
+      ## Cache pip dependencies
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -53,49 +53,76 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+            ${{ runner.os }}-
+
+      ## Cache yarn dependencies
+      - name: Get yarn cache directory
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
 
       - name: Cache yarn
         uses: actions/cache@v4
+        id: yarn-cache
         with:
-          path: ~/.cache/yarn
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
           key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
           restore-keys: |
             ${{ runner.os }}-yarn-
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mariadb-client redis-tools
+      ## Install system dependencies
+      - name: Install MariaDB Client
+        run: sudo apt-get install -y mariadb-client-10.6
 
-      - name: Install Bench
+      ## Initialize bench environment
+      - name: Setup bench environment
         run: |
+          pip install --upgrade pip setuptools wheel
           pip install frappe-bench
-
-      - name: Init Bench
-        run: |
           bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
-      - name: Configure DB
+      ## Configure MariaDB charset
+      - name: Configure database
         run: |
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      - name: Install App + Frappe
+      ## Install Frappe framework (pinned to stable v15.26.0)
+      - name: Install Frappe
         working-directory: /home/runner/frappe-bench
         env:
-          CI: "Yes"
+          CI: 'Yes'
         run: |
-          bench get-app frappe --branch version-15
+          bench get-app frappe --branch version-15 --tag v15.26.0
+
+      ## Install autozonepro app and dependencies
+      - name: Install apps
+        working-directory: /home/runner/frappe-bench
+        env:
+          CI: 'Yes'
+        run: |
           bench get-app autozonepro $GITHUB_WORKSPACE
           bench setup requirements --dev
-          bench new-site test_site --db-root-password root --admin-password admin
+
+      ## Create test site and install apps
+      - name: Create test site
+        working-directory: /home/runner/frappe-bench
+        run: |
+          bench new-site --db-root-password root --admin-password admin test_site
           bench --site test_site install-app frappe
           bench --site test_site install-app autozonepro
           bench --site test_site migrate
-          bench build
 
-      - name: Run Tests
+      ## Build assets
+      - name: Build assets
         working-directory: /home/runner/frappe-bench
         run: |
+          bench build
+
+      ## Run tests
+      - name: Run tests
+        working-directory: /home/runner/frappe-bench
+        env:
+          TYPE: server
+        run: |
           bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app autozonepro
+          bench --site test_site run-tests --app autozonepro --verbose
