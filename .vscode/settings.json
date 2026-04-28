@@ -1,3 +1,4 @@
 {
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "dotnet.defaultSolution": "Giraffe Academy.sln"
 }
