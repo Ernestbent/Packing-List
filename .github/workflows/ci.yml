@@ -75,13 +75,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mariadb-client
 
-      ## Initialize bench environment without Frappe
+      ## Initialize bench environment
       - name: Setup bench environment
         run: |
           pip install --upgrade pip setuptools wheel
           pip install frappe-bench
-          ## Initialize WITHOUT frappe (we'll install specific version via pip)
-          bench init --skip-redis-config-generation --skip-assets --skip-frappe --python "$(which python)" ~/frappe-bench
+          ## Initialize bench (will auto-clone Frappe, we'll override it after)
+          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
       ## Configure MariaDB charset
       - name: Configure database
@@ -89,14 +89,20 @@ jobs:
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
-      ## Install specific Frappe version FIRST (before setup requirements)
+      ## Remove auto-cloned Frappe and install specific version
       - name: Install Frappe v15.26.0
         working-directory: /home/runner/frappe-bench
         run: |
+          ## Remove the auto-cloned Frappe that has syntax errors
+          rm -rf apps/frappe
+          
+          ## Create apps directory if missing
+          mkdir -p apps
+          
+          ## Activate venv and install specific Frappe version
           source env/bin/activate
-          ## Install exact Frappe version via pip (avoids git clone)
-          pip install frappe==15.26.0 --upgrade
-          echo "Installed Frappe v15.26.0"
+          pip install frappe==15.26.0 --upgrade --target apps/frappe
+          echo "Installed Frappe v15.26.0 to apps/frappe"
 
       ## Install autozonepro app and dependencies
       - name: Install autozonepro app
