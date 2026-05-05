@@ -153,7 +153,7 @@ doctype_list_js = {
 # Override standard doctype classes
 
 # override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
+# 	"ToDo": "custom_app.overrides.CustomToDo
 # }
 
 # Document Events
@@ -185,11 +185,11 @@ override_doctype_class = {
 scheduler_events = {
     "cron": {
         "0 7 * * *": [
-            "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_picking_orders_notifications",
-            "autozonepro.autozonepro.custom_scripts.send_morning_on_hold_notifications.send_morning_on_hold_notifications",
+            # "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_picking_orders_notifications",
+            "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_morning_pending_credit_notifications",
         ],
         "0 18 * * *": [
-            "autozonepro.autozonepro.custom_scripts.send_notifications_pending_orders_eve.send_packing_orders_notifications",
+            "autozonepro.autozonepro.custom_scripts.send_notifications_pending_orders_eve.send_evening_pending_orders_notifications",
             "autozonepro.autozonepro.custom_scripts.send_notifications_billed_orders.send_billed_orders_notifications",
             "autozonepro.autozonepro.custom_scripts.send_evening_on_hold_notifications.send_evening_on_hold_notifications",
         ],
