@@ -8,6 +8,12 @@ ALLOWED_PERSONS = {
     "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris"
 }
 
+## Name overrides — map resolved full names to preferred display names
+NAME_OVERRIDES = {
+    "Nabukenya Maria": "Maria",
+    "OWEN SHEN": "Owen",
+}
+
 def execute(filters=None):
     filters = filters or {}
     month = int(filters.get("month") or frappe.utils.getdate().month)
@@ -56,10 +62,11 @@ def get_user_name_map():
     return {u["email"].lower(): u["first_name"] for u in users}
 
 def resolve_name(email_or_name, user_name_map):
-    ## Resolve email to first_name if found, otherwise return value as-is
+    ## Resolve email to first_name, then apply override if needed
     if not email_or_name:
         return email_or_name
-    return user_name_map.get(email_or_name.lower(), email_or_name)
+    resolved = user_name_map.get(email_or_name.lower(), email_or_name)
+    return NAME_OVERRIDES.get(resolved, resolved)
 
 def get_data(month, year, num_days):
     params = {"month": month, "year": year}
@@ -67,72 +74,133 @@ def get_data(month, year, num_days):
     ## Load user map once for all email resolution below
     user_name_map = get_user_name_map()
 
-    ## PACKING: custom_packer and custom_date on Packing List
-    packing_rows = frappe.db.sql("""
+    ## PACKING ORDERS: count of distinct Sales Orders packed per person per day
+    packing_orders_raw = frappe.db.sql("""
         SELECT
             custom_packer AS person,
-            'Packing' AS activity,
             DAY(custom_date) AS day_num,
-            total_qty AS qty
+            COUNT(DISTINCT custom_sales_order) AS qty
         FROM `tabPacking List`
         WHERE docstatus = 1
             AND MONTH(custom_date) = %(month)s
             AND YEAR(custom_date) = %(year)s
             AND custom_packer IS NOT NULL
             AND custom_packer NOT IN ('', 'Select')
+            AND custom_sales_order IS NOT NULL
+            AND custom_sales_order != ''
+        GROUP BY custom_packer, DAY(custom_date)
     """, params, as_dict=True)
 
-    ## PICKING: custom_picker fetched from Pick List via Packing List
-    picking_rows = frappe.db.sql("""
+    packing_rows = [{"person": r["person"], "activity": "Packing",
+                     "day_num": r["day_num"], "qty": r["qty"]} for r in packing_orders_raw]
+
+    ## PACKING QTY: total_qty per person for Total Packing summary column
+    packing_qty_raw = frappe.db.sql("""
+        SELECT
+            custom_packer AS person,
+            SUM(total_qty) AS total_qty
+        FROM `tabPacking List`
+        WHERE docstatus = 1
+            AND MONTH(custom_date) = %(month)s
+            AND YEAR(custom_date) = %(year)s
+            AND custom_packer IS NOT NULL
+            AND custom_packer NOT IN ('', 'Select')
+        GROUP BY custom_packer
+    """, params, as_dict=True)
+
+    packing_qty_map = {r["person"]: r["total_qty"] for r in packing_qty_raw}
+
+    ## PICKING ORDERS: count of distinct Sales Orders picked per person per day
+    picking_orders_raw = frappe.db.sql("""
         SELECT
             custom_picker AS person,
-            'Picking' AS activity,
             DAY(custom_date) AS day_num,
-            total_qty AS qty
+            COUNT(DISTINCT custom_sales_order) AS qty
         FROM `tabPacking List`
         WHERE docstatus = 1
             AND MONTH(custom_date) = %(month)s
             AND YEAR(custom_date) = %(year)s
             AND custom_picker IS NOT NULL
             AND custom_picker NOT IN ('', 'Select')
+            AND custom_sales_order IS NOT NULL
+            AND custom_sales_order != ''
+        GROUP BY custom_picker, DAY(custom_date)
     """, params, as_dict=True)
 
-    ## VERIFY: custom_verifier_2 on Packing List
-    verifier_rows = frappe.db.sql("""
+    picking_rows = [{"person": r["person"], "activity": "Picking",
+                     "day_num": r["day_num"], "qty": r["qty"]} for r in picking_orders_raw]
+
+    ## PICKING QTY: total_qty per person for Total Picking summary column
+    picking_qty_raw = frappe.db.sql("""
+        SELECT
+            custom_picker AS person,
+            SUM(total_qty) AS total_qty
+        FROM `tabPacking List`
+        WHERE docstatus = 1
+            AND MONTH(custom_date) = %(month)s
+            AND YEAR(custom_date) = %(year)s
+            AND custom_picker IS NOT NULL
+            AND custom_picker NOT IN ('', 'Select')
+        GROUP BY custom_picker
+    """, params, as_dict=True)
+
+    picking_qty_map = {r["person"]: r["total_qty"] for r in picking_qty_raw}
+
+    ## VERIFY ORDERS: count of distinct Sales Orders verified per person per day
+    verifier_orders_raw = frappe.db.sql("""
         SELECT
             custom_verifier_2 AS person,
-            'Verify' AS activity,
             DAY(custom_date) AS day_num,
-            total_qty AS qty
+            COUNT(DISTINCT custom_sales_order) AS qty
         FROM `tabPacking List`
         WHERE docstatus = 1
             AND MONTH(custom_date) = %(month)s
             AND YEAR(custom_date) = %(year)s
             AND custom_verifier_2 IS NOT NULL
             AND custom_verifier_2 NOT IN ('', 'Select')
+            AND custom_sales_order IS NOT NULL
+            AND custom_sales_order != ''
+        GROUP BY custom_verifier_2, DAY(custom_date)
     """, params, as_dict=True)
 
-    ## BILLING: owner is email — resolved to first_name
-    billing_rows = frappe.db.sql("""
+    verifier_rows = [{"person": r["person"], "activity": "Verify",
+                      "day_num": r["day_num"], "qty": r["qty"]} for r in verifier_orders_raw]
+
+    ## VERIFY QTY: total_qty per person for Total Verified summary column
+    verifier_qty_raw = frappe.db.sql("""
+        SELECT
+            custom_verifier_2 AS person,
+            SUM(total_qty) AS total_qty
+        FROM `tabPacking List`
+        WHERE docstatus = 1
+            AND MONTH(custom_date) = %(month)s
+            AND YEAR(custom_date) = %(year)s
+            AND custom_verifier_2 IS NOT NULL
+            AND custom_verifier_2 NOT IN ('', 'Select')
+        GROUP BY custom_verifier_2
+    """, params, as_dict=True)
+
+    verifier_qty_map = {r["person"]: r["total_qty"] for r in verifier_qty_raw}
+
+    ## BILLING: Version table — who changed workflow state from Packed to Billing
+    billing_rows_raw = frappe.db.sql("""
         SELECT
             owner AS person,
-            'Billing' AS activity,
-            DAY(posting_date) AS day_num,
+            DAY(creation) AS day_num,
             COUNT(*) AS qty
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1
-            AND MONTH(posting_date) = %(month)s
-            AND YEAR(posting_date) = %(year)s
-            AND owner IS NOT NULL
-            AND owner != ''
-        GROUP BY owner, DAY(posting_date)
+        FROM `tabVersion`
+        WHERE ref_doctype = 'Sales Order'
+            AND MONTH(creation) = %(month)s
+            AND YEAR(creation) = %(year)s
+            AND data LIKE '%%"workflow_state"%%Packed%%Billing%%'
+        GROUP BY owner, DAY(creation)
     """, params, as_dict=True)
 
-    ## Resolve billing owner emails to first_name
-    for r in billing_rows:
-        r["person"] = resolve_name(r["person"], user_name_map)
+    billing_rows = [{"person": resolve_name(r["person"], user_name_map),
+                     "activity": "Billing", "day_num": r["day_num"],
+                     "qty": r["qty"]} for r in billing_rows_raw]
 
-    ## DISPATCH: Version table workflow transition from In Transit to Dispatched
+    ## DISPATCH: Version table — who changed workflow from In Transit to Dispatched
     dispatch_rows_raw = frappe.db.sql("""
         SELECT
             owner AS person,
@@ -146,15 +214,9 @@ def get_data(month, year, num_days):
         GROUP BY owner, DAY(creation)
     """, params, as_dict=True)
 
-    ## Resolve dispatch owner emails to first_name
-    dispatch_rows = []
-    for r in dispatch_rows_raw:
-        dispatch_rows.append({
-            "person": resolve_name(r["person"], user_name_map),
-            "activity": "Dispatch",
-            "day_num": r["day_num"],
-            "qty": r["qty"]
-        })
+    dispatch_rows = [{"person": resolve_name(r["person"], user_name_map),
+                      "activity": "Dispatch", "day_num": r["day_num"],
+                      "qty": r["qty"]} for r in dispatch_rows_raw]
 
     all_rows = packing_rows + picking_rows + verifier_rows + billing_rows + dispatch_rows
 
@@ -206,19 +268,21 @@ def get_data(month, year, num_days):
             row["_is_first_row"] = 1 if i == 0 else 0
             row["_is_last_row"] = 0
 
-            ## Clear summary columns — filled on last row below
+            ## Each summary column shows on its own activity row — None on others
+            row["total_packing"] = (packing_qty_map.get(person, 0) or 0) if activity == "Packing" else None
+            row["total_picking"] = (picking_qty_map.get(person, 0) or 0) if activity == "Picking" else None
+            row["total_verified"] = (verifier_qty_map.get(person, 0) or 0) if activity == "Verify" else None
+            row["total_billing"] = total if activity == "Billing" else None
+            row["total_dispatched"] = total if activity == "Dispatch" else None
+
+            ## Combined summary cleared here — filled on last row below
             row["total_all_4"] = None
             row["overall_daily_avg"] = None
-            row["total_packing"] = None
-            row["total_picking"] = None
-            row["total_verified"] = None
-            row["total_billing"] = None
-            row["total_dispatched"] = None
 
             totals_by_activity[activity] = total
             person_rows.append(row)
 
-        ## Summary always on last row per person
+        ## Combined summary always on last row per person
         if person_rows:
             t_packing = totals_by_activity.get("Packing", 0)
             t_picking = totals_by_activity.get("Picking", 0)
@@ -231,11 +295,6 @@ def get_data(month, year, num_days):
             last["_is_last_row"] = 1
             last["total_all_4"] = total_all_4
             last["overall_daily_avg"] = round(total_all_4 / working_days, 1) if working_days else 0
-            last["total_packing"] = t_packing
-            last["total_picking"] = t_picking
-            last["total_verified"] = t_verified
-            last["total_billing"] = t_billing
-            last["total_dispatched"] = t_dispatched
 
         data.extend(person_rows)
 
