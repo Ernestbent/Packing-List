@@ -1,4 +1,4 @@
-frappe.query_reports["Performance Sheet"] = {   // ← Change to match your new Report Name
+frappe.query_reports["Performance Sheet"] = {   
     filters: [
         {
             fieldname: "month",
