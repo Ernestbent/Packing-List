@@ -39,16 +39,17 @@ frappe.query_reports["Performance Summary Report"] = {
         // Only style rows flagged as summary rows from the Python backend
         if (!data || !data._is_summary) return value;
 
-        // Highlight Total of All column in green
+        const val = value !== null && value !== undefined ? value : "";
+
+        // Green for Total of All — the combined SO count
         const isTotal = column.fieldname === "total_all";
 
-        // Highlight Daily Avg column in amber
+        // Amber for Daily Avg
         const isAvg = column.fieldname === "daily_avg";
 
-        // No. column gets a muted grey so it reads as an index not data
+        // Muted grey for No. — reads as index not data
         const isNo = column.fieldname === "no";
 
-        // Pick background based on column type
         const bg = isTotal ? "#d5f5e3"
                  : isAvg   ? "#fef9e7"
                  : isNo    ? "#f0f0f0"
@@ -62,6 +63,6 @@ frappe.query_reports["Performance Summary Report"] = {
             font-weight: ${isTotal || isAvg ? "700" : "500"};
             padding: 4px 6px;
             color: #1a252f;
-        ">${value !== null && value !== undefined ? value : ""}</span>`;
+        ">${val}</span>`;
     }
 };
