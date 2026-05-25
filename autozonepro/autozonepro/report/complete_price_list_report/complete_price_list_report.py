@@ -6,6 +6,24 @@ import frappe
 from frappe import _
 from frappe.utils import flt, cint
 
+WAREHOUSE_COLUMNS = [
+    {
+        "fieldname": "container_1_qty",
+        "label": _("Container 1"),
+        "warehouse": "Cont. No. 1 = MAEU-8382503 - APL",
+    },
+    {
+        "fieldname": "container_2_qty",
+        "label": _("Container 2"),
+        "warehouse": "Cont. No. 2 = FTBU-8875500 - APL",
+    },
+    {
+        "fieldname": "main_location_qty",
+        "label": _("Main Location"),
+        "warehouse": "Main Loc - APL",
+    },
+]
+
 def execute(filters=None):
     columns, data = get_columns(), get_data(filters)
     return columns, data
@@ -81,6 +99,24 @@ def get_columns():
             "precision": 0
         },
         {
+            "fieldname": "container_1_qty",
+            "label": _("Container 1"),
+            "fieldtype": "Int",
+            "width": 110,
+        },
+        {
+            "fieldname": "container_2_qty",
+            "label": _("Container 2"),
+            "fieldtype": "Int",
+            "width": 110,
+        },
+        {
+            "fieldname": "main_location_qty",
+            "label": _("Main Location"),
+            "fieldtype": "Int",
+            "width": 120,
+        },
+        {
             "fieldname": "grand_total",
             "label": _("Grand Total"),
             "fieldtype": "Currency",
@@ -146,6 +182,8 @@ def get_data(filters):
             price_map[price.item_code] = {}
         price_map[price.item_code][price.price_list] = price.price_list_rate
 
+    stock_qty_map = get_stock_qty_map([item.item_code for item in items])
+
     ## Process each item and calculate prices
     for item in items:
         row = {
@@ -202,6 +240,10 @@ def get_data(filters):
         verma_price = get_price(price_map, item.item_code, "Verma Price List")
         row["verma_price"] = int(verma_price) if verma_price else None
 
+        for warehouse_column in WAREHOUSE_COLUMNS:
+            qty = stock_qty_map.get(item.item_code, {}).get(warehouse_column["warehouse"], 0)
+            row[warehouse_column["fieldname"]] = cint(qty)
+
         ## Calculate Grand Total: sum of all prices for this item
         grand_total = 0
         if row["standard_buying"]:
@@ -238,3 +280,28 @@ def get_price(price_map, item_code, price_list):
     if item_code in price_map and price_list in price_map[item_code]:
         return price_map[item_code][price_list]
     return None
+
+def get_stock_qty_map(item_codes):
+    if not item_codes:
+        return {}
+
+    warehouses = [column["warehouse"] for column in WAREHOUSE_COLUMNS]
+    bins = frappe.db.get_all(
+        "Bin",
+        filters={
+            "item_code": ["in", item_codes],
+            "warehouse": ["in", warehouses],
+        },
+        fields=["item_code", "warehouse", "actual_qty"],
+        limit_page_length=50000,
+    )
+
+    stock_qty_map = {}
+    for bin_row in bins:
+        stock_qty_map.setdefault(bin_row.item_code, {})
+        stock_qty_map[bin_row.item_code][bin_row.warehouse] = (
+            stock_qty_map[bin_row.item_code].get(bin_row.warehouse, 0)
+            + flt(bin_row.actual_qty)
+        )
+
+    return stock_qty_map

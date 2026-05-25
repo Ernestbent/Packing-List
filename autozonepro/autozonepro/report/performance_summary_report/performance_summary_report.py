@@ -226,8 +226,8 @@ def get_data(month, year, num_days):
         t_billing    = billing_map.get(person, 0)  or 0
         t_dispatched = dispatch_map.get(person, 0) or 0
 
-        ## Total of All = Packing + Picking + Verify + Billing
-        total_all = t_packing + t_picking + t_verified + t_billing
+        ## Total of All = Packing + Picking + Verify + Billing + Dispatched
+        total_all = t_packing + t_picking + t_verified + t_billing + t_dispatched
         daily_avg = round(total_all / working_days, 1) if working_days else 0
 
         data.append({

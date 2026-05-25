@@ -282,7 +282,8 @@ def get_data(month, year, num_days):
             t_picking   = totals_by_activity.get("Picking", 0)
             t_verified  = totals_by_activity.get("Verify",  0)
             t_billing   = totals_by_activity.get("Billing", 0)
-            total_all_4 = t_packing + t_picking + t_verified + t_billing
+            t_dispatched = totals_by_activity.get("Dispatch", 0)
+            total_all_4 = t_packing + t_picking + t_verified + t_billing + t_dispatched
 
             last = person_rows[-1]
             last["_is_last_row"]      = 1

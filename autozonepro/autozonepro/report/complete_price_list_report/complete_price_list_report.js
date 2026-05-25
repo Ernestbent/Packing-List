@@ -41,9 +41,20 @@ frappe.query_reports["Complete Price List Report"] = {
     "formatter": function(value, row, column, data, default_formatter) {
         value = default_formatter(value, row, column, data);
 
+        const is_warehouse_qty = [
+            "container_1_qty",
+            "container_2_qty",
+            "main_location_qty"
+        ].includes(column.fieldname);
+
         // Highlight missing prices with orange dash
-        if (!value || value === "Not Set" || value === "N/A" || value === 0) {
+        if (!is_warehouse_qty && (!value || value === "Not Set" || value === "N/A" || value === 0)) {
             value = `<span style="color: #FF9800;">-</span>`;
+        }
+
+        if (is_warehouse_qty) {
+            const qty = data && data[column.fieldname] !== undefined ? parseInt(data[column.fieldname] || 0, 10) : 0;
+            value = `<span style="font-weight: 600; color: #455A64;">${qty}</span>`;
         }
 
         // Highlight calculated stockist price in blue
@@ -103,6 +114,9 @@ function export_report_to_excel(report) {
         "Distributor Price",
         "Retailer Price",
         "Verma Price List",
+        "Container 1",
+        "Container 2",
+        "Main Location",
         "Grand Total"
     ];
 
@@ -121,6 +135,9 @@ function export_report_to_excel(report) {
             row.distributor_price,
             row.retailer_price,
             row.verma_price,
+            row.container_1_qty,
+            row.container_2_qty,
+            row.main_location_qty,
             row.grand_total
         ];
 
