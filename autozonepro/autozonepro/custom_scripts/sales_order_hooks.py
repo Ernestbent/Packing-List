@@ -4,23 +4,11 @@ from frappe.utils import flt
 
 EXEMPT_BOXER_CUSTOMER = "MARK SHAMBA-0787273088"
 BOXER_TARGET_ITEM = "MGRT-BOXR-DX05"
-BOXER_LIMIT_QTY = 20
+BOXER_LIMIT_QTY = 26
 
 
 def validate(doc, method=None):
     enforce_boxer_cash_first(doc)
-
-
-def sync_on_hold_workflow_state(doc, method=None):
-    if doc.status == "On Hold" and doc.workflow_state != "On Hold":
-        frappe.db.set_value(
-            "Sales Order",
-            doc.name,
-            "workflow_state",
-            "On Hold",
-            update_modified=False,
-        )
-        doc.workflow_state = "On Hold"
 
 
 def enforce_boxer_cash_first(doc):

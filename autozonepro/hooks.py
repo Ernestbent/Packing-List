@@ -49,7 +49,6 @@ doctype_js = {
         # "public/js/update_delivery_note.js",
         # "public/js/verify_packing_list.js",
         "public/js/get_courier_details.js",
-        "public/js/sales_order_on_hold_workflow_sync.js",
         "public/js/sales_order_zero_rate_workflow_check.js",
     ],
     "Packing List":[
@@ -175,8 +174,6 @@ doc_events = {
     "Sales Order":{
         "validate": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
         "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
-        "on_update": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.sync_on_hold_workflow_state",
-        "on_update_after_submit": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.sync_on_hold_workflow_state",
     }
 }
 
