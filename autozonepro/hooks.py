@@ -49,7 +49,7 @@ doctype_js = {
         # "public/js/update_delivery_note.js",
         # "public/js/verify_packing_list.js",
         "public/js/get_courier_details.js",
-        "public/js/sales_order_zero_rate_workflow_check.js",
+        # "public/js/sales_order_zero_rate_workflow_check.js",
     ],
     "Packing List":[
         "public/js/packing_list_box-entry.js",
@@ -61,7 +61,7 @@ doctype_js = {
     ],
     "Pick List":[
         # "public/js/add_packing_list_on_pl.js"
-    ]
+    ],
 }
 
 doctype_list_js = {
@@ -171,10 +171,11 @@ doc_events = {
     "Pick List": {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
     },
-    "Sales Order":{
+   "Sales Order": {
+        "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
         "validate": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
-        "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
-    }
+        "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit"
+    },
 }
 
 override_doctype_class = {
