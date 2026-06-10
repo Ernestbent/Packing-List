@@ -185,19 +185,19 @@ override_doctype_class = {
 # Scheduled Tasks
 # ---------------
 
-scheduler_events = {
-    "cron": {
-        "0 7 * * *": [
-            # "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_picking_orders_notifications",
-            "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_morning_pending_credit_notifications",
-        ],
-        "0 18 * * *": [
-            "autozonepro.autozonepro.custom_scripts.send_notifications_pending_orders_eve.send_evening_pending_orders_notifications",
-            "autozonepro.autozonepro.custom_scripts.send_notifications_billed_orders.send_billed_orders_notifications",
-            "autozonepro.autozonepro.custom_scripts.send_evening_on_hold_notifications.send_evening_on_hold_notifications",
-        ],
-    }
-}
+# scheduler_events = {
+#     "cron": {
+#         "0 7 * * *": [
+#             # "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_picking_orders_notifications",
+#             "autozonepro.autozonepro.custom_scripts.send_notifications_Pending_orders.send_morning_pending_credit_notifications",
+#         ],
+#         "0 18 * * *": [
+#             "autozonepro.autozonepro.custom_scripts.send_notifications_pending_orders_eve.send_evening_pending_orders_notifications",
+#             "autozonepro.autozonepro.custom_scripts.send_notifications_billed_orders.send_billed_orders_notifications",
+#             "autozonepro.autozonepro.custom_scripts.send_evening_on_hold_notifications.send_evening_on_hold_notifications",
+#         ],
+#     }
+# }
 
 # Testing
 # -------
@@ -261,6 +261,32 @@ scheduler_events = {
 # 	}
 # ]
 
+
+# Automatically update python controller files with type annotations for this app.
+
+# Automatically update python controller files with type annotations for this app.
+# export_python_type_annotations = True
+
+# default_log_clearing_doctypes = {
+# 	"Logging DocType Name": 30  # days to retain logs
+# }
+# fixtures = [
+#     {
+#         "doctype": "Workflow",
+#         "filters": [
+#             ["workflow_name", "=", "Workflow Revised 2 with Automatic Transitions."]
+#         ]
+# export_python_type_annotations = True
+
+# default_log_clearing_doctypes = {
+# 	"Logging DocType Name": 30  # days to retain logs
+# }
+# fixtures = [
+#     {
+#         "doctype": "Workflow",
+#         "filters": [
+#             ["workflow_name", "=", "Workflow Revised 2 with Automatic Transitions."]
+#         ]
 # Authentication and authorization
 # --------------------------------
 
