@@ -5,8 +5,12 @@ import calendar
 ## Whitelist — only these display names appear in the report
 ALLOWED_PERSONS = {
     "Kenneth", "Joshua", "Ali", "Maria", "Peter",
-    "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris"
+    "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris",
+    "George", "Osbert"
 }
+
+JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
+MAY_ONWARD_PERSONS = {"George", "Osbert"}
 
 ## Name overrides — genuine typos or full name mappings that title() alone cannot fix
 NAME_OVERRIDES = {
@@ -68,6 +72,15 @@ def resolve_name(email_or_name, user_name_map):
     return cleaned.strip().title()
 
 
+def get_allowed_persons(month):
+    persons = set(ALLOWED_PERSONS)
+    if month < 5:
+        persons -= MAY_ONWARD_PERSONS
+    if month >= 6:
+        persons -= JUNE_ONWARD_EXCLUDED_PERSONS
+    return persons
+
+
 def build_person_total_map(rows):
     ## Sum qty per person — only allowed persons are counted
     totals = {}
@@ -82,6 +95,7 @@ def build_person_total_map(rows):
 def get_data(month, year, num_days):
     params        = {"month": month, "year": year}
     user_name_map = get_user_name_map()
+    allowed_persons = get_allowed_persons(month)
     working_days  = num_days
 
     ## PACKING — count distinct Sales Orders packed per person for the month
@@ -219,7 +233,7 @@ def get_data(month, year, num_days):
 
     ## Build one summary row per allowed person sorted alphabetically
     data = []
-    for idx, person in enumerate(sorted(ALLOWED_PERSONS), start=1):
+    for idx, person in enumerate(sorted(allowed_persons), start=1):
         t_packing    = packing_map.get(person, 0)  or 0
         t_picking    = picking_map.get(person, 0)  or 0
         t_verified   = verify_map.get(person, 0)   or 0

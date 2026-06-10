@@ -5,8 +5,12 @@ import calendar
 ## Only these people should appear in the report — filter out everyone else
 ALLOWED_PERSONS = {
     "Kenneth", "Joshua", "Ali", "Maria", "Peter",
-    "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris"
+    "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris",
+    "George", "Osbert"
 }
+
+JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
+MAY_ONWARD_PERSONS = {"George", "Osbert"}
 
 ## Name overrides — genuine typos or full name mappings that title() alone cannot fix
 NAME_OVERRIDES = {
@@ -81,9 +85,19 @@ def resolve_name(email_or_name, user_name_map):
     return cleaned.strip().title()
 
 
+def get_allowed_persons(month):
+    persons = set(ALLOWED_PERSONS)
+    if month < 5:
+        persons -= MAY_ONWARD_PERSONS
+    if month >= 6:
+        persons -= JUNE_ONWARD_EXCLUDED_PERSONS
+    return persons
+
+
 def get_data(month, year, num_days):
     params        = {"month": month, "year": year}
     user_name_map = get_user_name_map()
+    allowed_persons = get_allowed_persons(month)
 
     ## PACKING ORDERS: count distinct Sales Orders packed per person per day
     packing_orders_raw = frappe.db.sql("""
@@ -214,7 +228,7 @@ def get_data(month, year, num_days):
 
     all_rows = packing_rows + picking_rows + verifier_rows + billing_rows + dispatch_rows
 
-    persons        = sorted(ALLOWED_PERSONS)
+    persons        = sorted(allowed_persons)
     activities     = ["Packing", "Picking", "Verify", "Billing", "Dispatch"]
     activity_order = {a: i for i, a in enumerate(activities)}
 
