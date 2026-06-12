@@ -7,7 +7,7 @@ def on_submit(doc, method=None):
 
 def check_zero_rates(doc):
     # Allow this user to submit even with zero rates
-    if frappe.session.user == "ernestben69@gmail.com":
+    if frappe.session.user == "audit@autozonepro.org":
         return
 
     zero_rate_items = []
