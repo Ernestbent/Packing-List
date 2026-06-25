@@ -2,7 +2,6 @@ import frappe
 from frappe.utils import flt
 
 
-EXEMPT_BOXER_CUSTOMER = "MARK SHAMBA-0787273088"
 BOXER_TARGET_ITEM = "MGRT-BOXR-DX05"
 BOXER_LIMIT_QTY = 26
 CASH_FIRST_ITEM_RULES = {
@@ -12,7 +11,7 @@ CASH_FIRST_ITEM_RULES = {
     },
     "R2081001R": {
         "label": "R2081001R",
-        "limit_qty": 0,
+        "limit_qty": 19,
     },
 }
 
@@ -22,12 +21,11 @@ def validate(doc, method=None):
 
 
 def enforce_boxer_cash_first(doc):
-    if doc.customer == EXEMPT_BOXER_CUSTOMER:
-        return
-
+    ## Return early if missing core fields
     if not doc.customer or not doc.company or not doc.get("items"):
         return
 
+    ## Calculate totals per restricted item code
     item_totals = {
         item_code: {"qty": 0, "value": 0}
         for item_code in CASH_FIRST_ITEM_RULES
@@ -40,6 +38,7 @@ def enforce_boxer_cash_first(doc):
             item_totals[row.item_code]["qty"] += qty
             item_totals[row.item_code]["value"] += qty * rate
 
+    ## Find which items exceed their limits
     exceeded_items = [
         (item_code, item_totals[item_code]["qty"], item_totals[item_code]["value"])
         for item_code, rule in CASH_FIRST_ITEM_RULES.items()
@@ -49,8 +48,10 @@ def enforce_boxer_cash_first(doc):
     if not exceeded_items:
         return
 
+    ## Get customer advance balance from GL Entry
     advance_amount = get_customer_advance_amount(doc.customer, doc.company)
 
+    ## Validate each exceeded item against advance balance
     for item_code, total_qty, total_value in exceeded_items:
         label = CASH_FIRST_ITEM_RULES[item_code]["label"]
 
@@ -84,6 +85,7 @@ def enforce_boxer_cash_first(doc):
 
 
 def get_customer_advance_amount(customer, company):
+    ## Query GL Entry for customer's debit/credit balance
     balance = frappe.db.sql(
         """
         select coalesce(sum(debit - credit), 0)
@@ -96,4 +98,5 @@ def get_customer_advance_amount(customer, company):
         (customer, company),
     )[0][0]
 
+    ## Return advance if balance is negative (credit); else return 0
     return abs(flt(balance)) if flt(balance) < 0 else 0
