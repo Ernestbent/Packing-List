@@ -9,10 +9,10 @@ CASH_FIRST_ITEM_RULES = {
         "label": "Boxer DX05",
         "limit_qty": BOXER_LIMIT_QTY,
     },
-    "R2081001R": {
-        "label": "R2081001R",
-        "limit_qty": 19,
-    },
+    # "R2081001R": {
+    #     "label": "R2081001R",
+    #     "limit_qty": 19,
+    # },
 }
 
 
