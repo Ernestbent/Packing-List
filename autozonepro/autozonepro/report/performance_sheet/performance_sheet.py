@@ -6,7 +6,7 @@ import calendar
 ALLOWED_PERSONS = {
     "Kenneth", "Joshua", "Ali", "Maria", "Peter",
     "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris",
-    "George", "Osbert"
+    "George", "Osbert", "Moses"
 }
 
 JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}

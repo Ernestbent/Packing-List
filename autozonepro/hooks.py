@@ -173,7 +173,7 @@ doc_events = {
     },
    "Sales Order": {
         "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
-        "validate": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
+        "validate": "autozonepro.autozonepro.custom_scripts.sales_order_validate.validate",
         "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit"
     },
 }
