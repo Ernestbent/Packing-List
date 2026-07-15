@@ -171,9 +171,10 @@ doc_events = {
     "Pick List": {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
     },
-   "Sales Order": {
+    "Sales Order": {
         "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
-        "validate": "autozonepro.autozonepro.custom_scripts.sales_order_validate.validate",
+        "validate": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
+        "before_submit": "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
         "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit"
     },
 }
