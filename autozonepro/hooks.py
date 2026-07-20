@@ -173,7 +173,15 @@ doc_events = {
     },
     "Sales Order": {
         "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
-        "validate": "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
+        "validate": [
+            "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
+            "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
+            "autozonepro.autozonepro.custom_scripts.sales_order_pick_list_stock.validate",
+        ],
+        "before_update_after_submit": [
+            "autozonepro.autozonepro.custom_scripts.sales_order_pick_list_stock.before_update_after_submit",
+            "autozonepro.autozonepro.custom_scripts.check_packing_lists.before_update_after_submit",
+        ],
         "before_submit": "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
         "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit"
     },
