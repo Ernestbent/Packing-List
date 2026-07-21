@@ -4,7 +4,7 @@ from frappe import _
 
 @frappe.whitelist()
 def validate_packing_list_verified(sales_order):
-    """Ensure Start Packing has a linked Pick List and verified Packing Lists."""
+    """Ensure Start Packing has a linked Pick List."""
 
     blocked_message = get_start_packing_block_message(sales_order)
     if blocked_message:
@@ -34,24 +34,6 @@ def get_start_packing_block_message(sales_order):
         return _(
             "Cannot start packing because there is no Pick List linked to this Sales Order in Connections."
         )
-
-    packing_lists = frappe.get_all(
-        "Packing List",
-        filters={"custom_sales_order": sales_order},
-        fields=["name", "workflow_state"]
-    )
-
-    if not packing_lists:
-        return _("Cannot start packing because no Packing List is linked to this Sales Order.")
-
-    not_verified = [
-        pl.name for pl in packing_lists
-        if pl.workflow_state != "Verified"
-    ]
-
-    if not_verified:
-        links = ", ".join([f"<a href='/app/packing-list/{pl}' target='_blank'>{pl}</a>" for pl in not_verified])
-        return _("Cannot start packing. These Packing Lists are not Verified:<br>{0}").format(links)
 
     return None
 
