@@ -62,6 +62,9 @@ doctype_js = {
     "Pick List":[
         # "public/js/add_packing_list_on_pl.js"
     ],
+    "Report": [
+        "public/js/report.js"
+    ],
 }
 
 doctype_list_js = {
@@ -188,7 +191,8 @@ doc_events = {
 }
 
 override_doctype_class = {
-    "Customer": "autozonepro.autozonepro.overrides.customer.CustomCustomer"
+    "Customer": "autozonepro.autozonepro.overrides.customer.CustomCustomer",
+    "Report": "autozonepro.autozonepro.overrides.report.AutozoneproReport",
 }
 
 # Scheduled Tasks
@@ -317,3 +321,6 @@ override_doctype_class = {
 #         ]
 #     }
 # ]
+after_migrate = [
+    "autozonepro.autozonepro.utils.report_settings.disable_prepared_reports"
+]
