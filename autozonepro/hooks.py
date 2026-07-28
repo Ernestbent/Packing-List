@@ -192,7 +192,6 @@ doc_events = {
 
 override_doctype_class = {
     "Customer": "autozonepro.autozonepro.overrides.customer.CustomCustomer",
-    "Report": "autozonepro.autozonepro.overrides.report.AutozoneproReport",
 }
 
 # Scheduled Tasks
@@ -321,6 +320,3 @@ override_doctype_class = {
 #         ]
 #     }
 # ]
-after_migrate = [
-    "autozonepro.autozonepro.utils.report_settings.disable_prepared_reports"
-]

@@ -1,21 +1,6 @@
-const reports_with_prepared_report_disabled = new Set([
-	"General Ledger",
-	"Trial Balance",
-	"Accounts Receivable",
-	"Accounts Payable",
-	"Balance Sheet",
-	"Profit and Loss Statement",
-	"Stock Ledger",
-	"Stock Balance",
-]);
-
 frappe.ui.form.on("Report", {
 	refresh(frm) {
-		if (
-			frm.is_new() ||
-			!frm.doc.prepared_report ||
-			!reports_with_prepared_report_disabled.has(frm.doc.name)
-		) {
+		if (frm.is_new() || !frm.doc.prepared_report) {
 			return;
 		}
 

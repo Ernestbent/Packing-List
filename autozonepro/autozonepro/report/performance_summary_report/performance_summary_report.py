@@ -10,6 +10,7 @@ ALLOWED_PERSONS = {
 }
 
 JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
+JULY_2026_ONWARD_EXCLUDED_PERSONS = {"Osbert", "Peter"}
 MAY_ONWARD_PERSONS = {"George", "Osbert"}
 
 ## Name overrides — genuine typos or full name mappings that title() alone cannot fix
@@ -72,12 +73,14 @@ def resolve_name(email_or_name, user_name_map):
     return cleaned.strip().title()
 
 
-def get_allowed_persons(month):
+def get_allowed_persons(month, year):
     persons = set(ALLOWED_PERSONS)
     if month < 5:
         persons -= MAY_ONWARD_PERSONS
     if month >= 6:
         persons -= JUNE_ONWARD_EXCLUDED_PERSONS
+    if (year, month) >= (2026, 7):
+        persons -= JULY_2026_ONWARD_EXCLUDED_PERSONS
     return persons
 
 
@@ -95,7 +98,7 @@ def build_person_total_map(rows):
 def get_data(month, year, num_days):
     params        = {"month": month, "year": year}
     user_name_map = get_user_name_map()
-    allowed_persons = get_allowed_persons(month)
+    allowed_persons = get_allowed_persons(month, year)
     working_days  = num_days
 
     ## PACKING — count distinct Sales Orders packed per person for the month
