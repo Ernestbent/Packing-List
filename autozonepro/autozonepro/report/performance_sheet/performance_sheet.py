@@ -4,9 +4,15 @@ import calendar
 
 ## Only these people should appear in the report — filter out everyone else
 ALLOWED_PERSONS = {
-    "Kenneth", "Joshua", "Ali", "Maria", "Peter",
+    "Kenneth", "Joshua", "Ali", "Maria", "Peter", "Arthur", "Swabura", "Jovan",
     "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris",
     "George", "Osbert", "Moses", "Charles"
+}
+
+PERSON_EMAILS = {
+    "nduggaarthur@gmail.com": "Arthur",
+    "namuyigaswaburah@gmail.com": "Swabura",
+    "muwanguzijovan34@gmail.com": "Jovan",
 }
 
 JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
@@ -69,7 +75,9 @@ def get_user_name_map():
         WHERE enabled = 1
             AND name != 'Guest'
     """, as_dict=True)
-    return {u["email"].lower(): u["first_name"] for u in users}
+    user_name_map = {u["email"].lower(): u["first_name"] for u in users}
+    user_name_map.update(PERSON_EMAILS)
+    return user_name_map
 
 
 def resolve_name(email_or_name, user_name_map):
