@@ -175,7 +175,7 @@ doc_events = {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
     },
     "Sales Order": {
-        "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
+        # "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
         "validate": [
             "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
             "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
