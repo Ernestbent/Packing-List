@@ -53,7 +53,7 @@ def get_columns(num_days):
             "width":     38
         })
 
-    ## Summary columns — all show SO counts matching the day columns
+    ## Summary columns — counts are SO/action counts; picked qty is item quantity.
     columns.append({"label": _("Total"),             "fieldname": "total",             "fieldtype": "Int",   "width": 65})
     columns.append({"label": _("Daily Avg"),         "fieldname": "daily_avg",         "fieldtype": "Float", "width": 75,  "precision": 1})
     columns.append({"label": _("Total of All 4"),    "fieldname": "total_all_4",       "fieldtype": "Int",   "width": 100})
@@ -63,6 +63,8 @@ def get_columns(num_days):
     columns.append({"label": _("Total Verified"),    "fieldname": "total_verified",    "fieldtype": "Int",   "width": 100})
     columns.append({"label": _("Total Billing"),     "fieldname": "total_billing",     "fieldtype": "Int",   "width": 100})
     columns.append({"label": _("Total Dispatched"),  "fieldname": "total_dispatched",  "fieldtype": "Int",   "width": 110})
+    columns.append({"label": _("Total Qty Picked"),  "fieldname": "total_qty_picked",  "fieldtype": "Int", "width": 120})
+    columns.append({"label": _("Total Amount"),      "fieldname": "total_so_amount",   "fieldtype": "Currency", "width": 130, "precision": 0})
 
     return columns
 
@@ -151,6 +153,71 @@ def get_data(month, year, num_days):
     picking_rows = [{"person": resolve_name(r["person"], user_name_map),
                      "activity": "Picking", "day_num": r["day_num"], "qty": r["qty"]}
                     for r in picking_orders_raw]
+
+    ## PICKED QUANTITY: sum picked item quantities per picker per day
+    picked_qty_raw = frappe.db.sql("""
+        SELECT
+            pl.custom_picker AS person,
+            SUM(COALESCE(pli.qty, 0)) AS qty
+        FROM `tabPacking List` pl
+        INNER JOIN `tabItems` pli
+            ON pli.parent = pl.name
+            AND pli.parenttype = 'Packing List'
+            AND pli.parentfield = 'table_ttya'
+        WHERE pl.docstatus = 1
+            AND MONTH(pl.custom_date) = %(month)s
+            AND YEAR(pl.custom_date)  = %(year)s
+            AND pl.custom_picker IS NOT NULL
+            AND pl.custom_picker NOT IN ('', 'Select')
+            AND pl.custom_sales_order IS NOT NULL
+            AND pl.custom_sales_order != ''
+        GROUP BY pl.custom_picker
+    """, params, as_dict=True)
+
+    picked_qty_by_person = {}
+    for r in picked_qty_raw:
+        person = resolve_name(r["person"], user_name_map)
+        picked_qty_by_person[person] = picked_qty_by_person.get(person, 0) + (r["qty"] or 0)
+
+    ## PICKED SALES ORDER AMOUNT: picked item qty x Sales Order Item net rate.
+    ## This avoids counting SO lines that were not actually picked.
+    picked_so_amount_raw = frappe.db.sql("""
+        SELECT
+            pl.custom_picker AS person,
+            SUM(COALESCE(pli.qty, 0) * COALESCE(soi.net_rate, 0)) AS amount
+        FROM `tabPacking List` pl
+        INNER JOIN `tabItems` pli
+            ON pli.parent = pl.name
+            AND pli.parenttype = 'Packing List'
+            AND pli.parentfield = 'table_ttya'
+        LEFT JOIN (
+            SELECT
+                parent,
+                item_code,
+                CASE
+                    WHEN SUM(qty) != 0 THEN SUM(net_amount) / SUM(qty)
+                    ELSE MAX(net_rate)
+                END AS net_rate
+            FROM `tabSales Order Item`
+            GROUP BY parent, item_code
+        ) soi
+            ON soi.parent = pl.custom_sales_order
+            AND soi.item_code = pli.item
+        WHERE pl.docstatus = 1
+            AND MONTH(pl.custom_date) = %(month)s
+            AND YEAR(pl.custom_date)  = %(year)s
+            AND pl.custom_picker IS NOT NULL
+            AND pl.custom_picker NOT IN ('', 'Select')
+            AND pl.custom_sales_order IS NOT NULL
+            AND pl.custom_sales_order != ''
+        GROUP BY pl.custom_picker
+    """, params, as_dict=True)
+
+    picked_so_amount_by_person = {}
+    for r in picked_so_amount_raw:
+        person = resolve_name(r["person"], user_name_map)
+        picked_so_amount_by_person[person] = picked_so_amount_by_person.get(person, 0) + (r["amount"] or 0)
+
 
     ## VERIFY ORDERS: Verifier 1 = owner who submitted, Verifier 2 = custom_verifier_2
     ## Pull raw rows then deduplicate by (resolved_name, sales_order) in Python
@@ -290,6 +357,8 @@ def get_data(month, year, num_days):
             ## These match exactly what the day columns add up to
             row["total_packing"]    = total if activity == "Packing"  else None
             row["total_picking"]    = total if activity == "Picking"  else None
+            row["total_qty_picked"] = int(picked_qty_by_person.get(person, 0)) if activity == "Picking" else None
+            row["total_so_amount"]  = int(round(picked_so_amount_by_person.get(person, 0))) if activity == "Picking" else None
             row["total_verified"]   = total if activity == "Verify"   else None
             row["total_billing"]    = total if activity == "Billing"  else None
             row["total_dispatched"] = total if activity == "Dispatch" else None

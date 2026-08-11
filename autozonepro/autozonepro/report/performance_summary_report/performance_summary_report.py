@@ -27,15 +27,27 @@ def execute(filters=None):
     year     = int(filters.get("year")  or frappe.utils.getdate().year)
     num_days = calendar.monthrange(year, month)[1]
 
-    columns = get_columns()
+    columns = get_columns(month, year)
     data    = get_data(month, year, num_days)
 
     return columns, data
 
 
-def get_columns():
-    ## Fixed summary columns — all counts are distinct Sales Orders
-    return [
+def get_previous_months(month, year, count=3):
+    months = []
+    for offset in range(1, count + 1):
+        prev_month = month - offset
+        prev_year = year
+        while prev_month < 1:
+            prev_month += 12
+            prev_year -= 1
+        months.append((prev_month, prev_year))
+    return months
+
+
+def get_columns(month, year):
+    ## Fixed summary columns — counts are distinct Sales Orders; picked qty is item quantity.
+    columns = [
         {"label": _("No."),              "fieldname": "no",              "fieldtype": "Int",   "width": 50},
         {"label": _("Name"),             "fieldname": "person",          "fieldtype": "Data",  "width": 120},
         {"label": _("Packing"),          "fieldname": "packing",         "fieldtype": "Int",   "width": 90},
@@ -45,7 +57,19 @@ def get_columns():
         {"label": _("Dispatched"),       "fieldname": "dispatched",      "fieldtype": "Int",   "width": 100},
         {"label": _("Total of All"),     "fieldname": "total_all",       "fieldtype": "Int",   "width": 110},
         {"label": _("Daily Avg"),        "fieldname": "daily_avg",       "fieldtype": "Float", "width": 90, "precision": 1},
+        {"label": _("Qty Picked"),       "fieldname": "qty_picked",      "fieldtype": "Int",   "width": 100},
+        {"label": _("Total Amount"),     "fieldname": "so_amount",       "fieldtype": "Currency", "width": 130, "precision": 0},
     ]
+
+    for idx, (prev_month, prev_year) in enumerate(get_previous_months(month, year), start=1):
+        columns.append({
+            "label": _(f"{calendar.month_abbr[prev_month]} {prev_year}"),
+            "fieldname": f"previous_month_{idx}",
+            "fieldtype": "Int",
+            "width": 95,
+        })
+
+    return columns
 
 
 def get_user_name_map():
@@ -95,11 +119,113 @@ def build_person_total_map(rows):
     return totals
 
 
+def get_month_performance_totals(month, year, user_name_map):
+    params = {"month": month, "year": year}
+
+    packing_raw = frappe.db.sql("""
+        SELECT custom_packer AS person, COUNT(DISTINCT custom_sales_order) AS qty
+        FROM `tabPacking List`
+        WHERE docstatus = 1
+          AND MONTH(custom_date) = %(month)s
+          AND YEAR(custom_date)  = %(year)s
+          AND custom_packer IS NOT NULL
+          AND custom_packer NOT IN ('', 'Select')
+          AND custom_sales_order IS NOT NULL
+          AND custom_sales_order != ''
+        GROUP BY custom_packer
+    """, params, as_dict=True)
+
+    picking_raw = frappe.db.sql("""
+        SELECT custom_picker AS person, COUNT(DISTINCT custom_sales_order) AS qty
+        FROM `tabPacking List`
+        WHERE docstatus = 1
+          AND MONTH(custom_date) = %(month)s
+          AND YEAR(custom_date)  = %(year)s
+          AND custom_picker IS NOT NULL
+          AND custom_picker NOT IN ('', 'Select')
+          AND custom_sales_order IS NOT NULL
+          AND custom_sales_order != ''
+        GROUP BY custom_picker
+    """, params, as_dict=True)
+
+    verify_raw = frappe.db.sql("""
+        SELECT person, custom_sales_order
+        FROM (
+            SELECT owner AS person, custom_sales_order
+            FROM `tabPacking List`
+            WHERE docstatus = 1
+              AND MONTH(custom_date) = %(month)s
+              AND YEAR(custom_date)  = %(year)s
+              AND custom_sales_order IS NOT NULL
+              AND custom_sales_order != ''
+
+            UNION ALL
+
+            SELECT custom_verifier_2 AS person, custom_sales_order
+            FROM `tabPacking List`
+            WHERE docstatus = 1
+              AND MONTH(custom_date) = %(month)s
+              AND YEAR(custom_date)  = %(year)s
+              AND custom_verifier_2 IS NOT NULL
+              AND custom_verifier_2 NOT IN ('', 'Select')
+              AND custom_sales_order IS NOT NULL
+              AND custom_sales_order != ''
+        ) combined
+    """, params, as_dict=True)
+
+    seen = set()
+    verify_counts = {}
+    for r in verify_raw:
+        name = resolve_name(r["person"], user_name_map)
+        dedup_key = (name, r["custom_sales_order"])
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        verify_counts[name] = verify_counts.get(name, 0) + 1
+
+    billing_raw = frappe.db.sql("""
+        SELECT owner AS person, COUNT(*) AS qty
+        FROM `tabVersion`
+        WHERE ref_doctype = 'Sales Order'
+          AND MONTH(creation) = %(month)s
+          AND YEAR(creation)  = %(year)s
+          AND data LIKE '%%"workflow_state"%%Packed%%Billing%%'
+        GROUP BY owner
+    """, params, as_dict=True)
+
+    dispatch_raw = frappe.db.sql("""
+        SELECT owner AS person, COUNT(*) AS qty
+        FROM `tabVersion`
+        WHERE ref_doctype = 'Sales Order'
+          AND MONTH(creation) = %(month)s
+          AND YEAR(creation)  = %(year)s
+          AND data LIKE '%%"workflow_state"%%In Transit%%Dispatched%%'
+        GROUP BY owner
+    """, params, as_dict=True)
+
+    total_map = {}
+    rows = []
+    rows.extend({"person": resolve_name(r["person"], user_name_map), "qty": r["qty"]} for r in packing_raw)
+    rows.extend({"person": resolve_name(r["person"], user_name_map), "qty": r["qty"]} for r in picking_raw)
+    rows.extend({"person": person, "qty": qty} for person, qty in verify_counts.items())
+    rows.extend({"person": resolve_name(r["person"], user_name_map), "qty": r["qty"]} for r in billing_raw)
+    rows.extend({"person": resolve_name(r["person"], user_name_map), "qty": r["qty"]} for r in dispatch_raw)
+
+    for person, total in build_person_total_map(rows).items():
+        total_map[person] = total
+
+    return total_map
+
+
 def get_data(month, year, num_days):
     params        = {"month": month, "year": year}
     user_name_map = get_user_name_map()
     allowed_persons = get_allowed_persons(month, year)
     working_days  = num_days
+    previous_month_totals = [
+        get_month_performance_totals(prev_month, prev_year, user_name_map)
+        for prev_month, prev_year in get_previous_months(month, year)
+    ]
 
     ## PACKING — count distinct Sales Orders packed per person for the month
     packing_raw = frappe.db.sql("""
@@ -151,6 +277,80 @@ def get_data(month, year, num_days):
 
     picking_map = build_person_total_map(
         [{"person": k, "qty": v} for k, v in picking_merged.items()]
+    )
+
+    ## PICKED QUANTITY — sum picked item quantities per picker for the month
+    picked_qty_raw = frappe.db.sql("""
+        SELECT
+            pl.custom_picker AS person,
+            SUM(COALESCE(pli.qty, 0)) AS qty
+        FROM `tabPacking List` pl
+        INNER JOIN `tabItems` pli
+            ON pli.parent = pl.name
+            AND pli.parenttype = 'Packing List'
+            AND pli.parentfield = 'table_ttya'
+        WHERE pl.docstatus = 1
+          AND MONTH(pl.custom_date) = %(month)s
+          AND YEAR(pl.custom_date)  = %(year)s
+          AND pl.custom_picker IS NOT NULL
+          AND pl.custom_picker NOT IN ('', 'Select')
+          AND pl.custom_sales_order IS NOT NULL
+          AND pl.custom_sales_order != ''
+        GROUP BY pl.custom_picker
+    """, params, as_dict=True)
+
+    ## Resolve names and merge — qty_picked is item quantity, separate from SO counts
+    picked_qty_merged = {}
+    for r in picked_qty_raw:
+        name = resolve_name(r["person"], user_name_map)
+        picked_qty_merged[name] = picked_qty_merged.get(name, 0) + (r["qty"] or 0)
+
+    picked_qty_map = build_person_total_map(
+        [{"person": k, "qty": v} for k, v in picked_qty_merged.items()]
+    )
+
+    ## PICKED SALES ORDER AMOUNT — picked item qty x Sales Order Item net rate.
+    ## This avoids counting SO lines that were not actually picked.
+    picked_so_amount_raw = frappe.db.sql("""
+        SELECT
+            pl.custom_picker AS person,
+            SUM(COALESCE(pli.qty, 0) * COALESCE(soi.net_rate, 0)) AS qty
+        FROM `tabPacking List` pl
+        INNER JOIN `tabItems` pli
+            ON pli.parent = pl.name
+            AND pli.parenttype = 'Packing List'
+            AND pli.parentfield = 'table_ttya'
+        LEFT JOIN (
+            SELECT
+                parent,
+                item_code,
+                CASE
+                    WHEN SUM(qty) != 0 THEN SUM(net_amount) / SUM(qty)
+                    ELSE MAX(net_rate)
+                END AS net_rate
+            FROM `tabSales Order Item`
+            GROUP BY parent, item_code
+        ) soi
+            ON soi.parent = pl.custom_sales_order
+            AND soi.item_code = pli.item
+        WHERE pl.docstatus = 1
+          AND MONTH(pl.custom_date) = %(month)s
+          AND YEAR(pl.custom_date)  = %(year)s
+          AND pl.custom_picker IS NOT NULL
+          AND pl.custom_picker NOT IN ('', 'Select')
+          AND pl.custom_sales_order IS NOT NULL
+          AND pl.custom_sales_order != ''
+        GROUP BY pl.custom_picker
+    """, params, as_dict=True)
+
+    ## Resolve names and merge — amount is separate from SO/action counts
+    picked_so_amount_merged = {}
+    for r in picked_so_amount_raw:
+        name = resolve_name(r["person"], user_name_map)
+        picked_so_amount_merged[name] = picked_so_amount_merged.get(name, 0) + (r["qty"] or 0)
+
+    picked_so_amount_map = build_person_total_map(
+        [{"person": k, "qty": v} for k, v in picked_so_amount_merged.items()]
     )
 
     ## VERIFY — Verifier 1 = owner who submitted, Verifier 2 = custom_verifier_2
@@ -239,6 +439,8 @@ def get_data(month, year, num_days):
     for idx, person in enumerate(sorted(allowed_persons), start=1):
         t_packing    = packing_map.get(person, 0)  or 0
         t_picking    = picking_map.get(person, 0)  or 0
+        t_qty_picked = int(picked_qty_map.get(person, 0) or 0)
+        t_so_amount  = int(round(picked_so_amount_map.get(person, 0) or 0))
         t_verified   = verify_map.get(person, 0)   or 0
         t_billing    = billing_map.get(person, 0)  or 0
         t_dispatched = dispatch_map.get(person, 0) or 0
@@ -252,14 +454,22 @@ def get_data(month, year, num_days):
             "person":      person,
             "packing":     t_packing,
             "picking":     t_picking,
+            "qty_picked":  t_qty_picked,
+            "so_amount":   t_so_amount,
             "verified":    t_verified,
             "billing":     t_billing,
             "dispatched":  t_dispatched,
             "total_all":   total_all,
             "daily_avg":   daily_avg,
+            **{
+                f"previous_month_{prev_idx}": int(month_totals.get(person, 0) or 0)
+                for prev_idx, month_totals in enumerate(previous_month_totals, start=1)
+            },
             ## Total columns mirror the SO counts above — consistent with main columns
             "total_packing":    t_packing,
             "total_picking":    t_picking,
+            "total_qty_picked": t_qty_picked,
+            "total_so_amount":  t_so_amount,
             "total_verified":   t_verified,
             "total_billing":    t_billing,
             "total_dispatched": t_dispatched,
