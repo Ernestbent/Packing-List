@@ -4,9 +4,14 @@ import calendar
 
 ## Whitelist — only these display names appear in the report
 ALLOWED_PERSONS = {
-    "Kenneth", "Joshua", "Ali", "Maria", "Peter",
+    "Kenneth", "Joshua", "Ali", "Maria", "Peter", "Arthur", "Jovan",
     "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris",
     "George", "Osbert", "Moses", "Charles"
+}
+
+PERSON_EMAILS = {
+    "nduggaarthur@gmail.com": "Arthur",
+    "muwanguzijovan34@gmail.com": "Jovan",
 }
 
 JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
@@ -80,7 +85,9 @@ def get_user_name_map():
         WHERE enabled = 1
           AND name != 'Guest'
     """, as_dict=True)
-    return {u["email"].lower(): u["first_name"] for u in users}
+    user_name_map = {u["email"].lower(): u["first_name"] for u in users}
+    user_name_map.update(PERSON_EMAILS)
+    return user_name_map
 
 
 def resolve_name(email_or_name, user_name_map):
