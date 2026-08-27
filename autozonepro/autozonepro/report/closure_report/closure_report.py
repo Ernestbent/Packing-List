@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, get_datetime, getdate, nowdate
+from frappe.utils import add_days, flt, getdate, nowdate
 
 
 WORKFLOW_STATES = [
@@ -47,9 +47,6 @@ def get_columns():
 
 
 def get_data(filters):
-	period_start = get_datetime(filters.closing_date)
-	period_end = get_datetime(add_days(filters.closing_date, 1))
-
 	state_totals = frappe.db.sql(
 		"""
 			SELECT
@@ -70,8 +67,8 @@ def get_data(filters):
 	)
 	totals_by_state = {row.workflow_state: row for row in state_totals}
 
-	# Pending for Dispatch is the current Billed queue. Its amount comes from the
-	# submitted invoices linked to those Billed Sales Orders.
+	## Pending for Dispatch is the current Billed queue. Its amount comes from the
+	## submitted invoices linked to those Billed Sales Orders.
 	pending_dispatch_invoice_rows = frappe.db.sql(
 		"""
 			SELECT
@@ -97,9 +94,9 @@ def get_data(filters):
 		{row.sales_invoice: flt(row.base_grand_total) for row in pending_dispatch_invoice_rows}.values()
 	)
 
-	# Billed is daily throughput. Include every submitted Sales Invoice worked on
-	# during the selected date window when it links to at least one Sales Order,
-	# regardless of the Sales Order's creation date or its current workflow state.
+	## Billed is daily throughput. Include every submitted Sales Invoice posted on
+	## the selected date when it links to at least one Sales Order, regardless
+	## of the Sales Order's creation date or its current workflow state.
 	daily_billed_invoice_rows = frappe.db.sql(
 		"""
 			SELECT
@@ -111,14 +108,12 @@ def get_data(filters):
 				ON sii.parent = si.name AND sii.docstatus = 1
 			WHERE si.docstatus = 1
 				AND si.company = %(company)s
-				AND si.modified >= %(period_start)s
-				AND si.modified < %(period_end)s
+				AND si.posting_date = %(closing_date)s
 				AND IFNULL(sii.sales_order, '') != ''
 		""",
 		{
 			"company": filters.company,
-			"period_start": period_start,
-			"period_end": period_end,
+			"closing_date": filters.closing_date,
 		},
 		as_dict=True,
 	)
@@ -138,9 +133,7 @@ def get_data(filters):
 
 
 def build_rows(totals_by_state, daily_billed, pending_dispatch_amount, closing_date):
-	period_remark = "{0} to {1}".format(
-		closing_date.strftime("%d %b"), add_days(closing_date, 1).strftime("%d %b")
-	)
+	period_remark = closing_date.strftime("%d %b")
 	rows = []
 	for idx, (report_key, label) in enumerate(WORKFLOW_STATES, start=1):
 		state_total = totals_by_state.get(report_key) or frappe._dict()
