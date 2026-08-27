@@ -1055,10 +1055,13 @@ class Analytics:
 			distinct_field = "item_code" if self.filters.value_quantity == "Unique Items" else "customer"
 			period_items = frappe._dict()
 			self.entity_unique_values = frappe._dict()
+			stock_uom_by_entity = frappe._dict()
 			for d in self.entries:
 				distinct_value = d.get(distinct_field)
 				if not distinct_value:
 					continue
+				if self.filters.tree_type == "Item" and d.get("stock_uom"):
+					stock_uom_by_entity.setdefault(d.entity, d.stock_uom)
 				period = self.get_period(d.get(self.date_field))
 				period_items.setdefault(d.entity, frappe._dict()).setdefault(period, set()).add(
 					distinct_value
@@ -1069,6 +1072,8 @@ class Analytics:
 				self.entity_periodic_data[entity] = frappe._dict(
 					{period: len(items) for period, items in periods.items()}
 				)
+				if self.filters.tree_type == "Item":
+					self.entity_periodic_data[entity]["stock_uom"] = stock_uom_by_entity.get(entity)
 			return
 
 		for d in self.entries:

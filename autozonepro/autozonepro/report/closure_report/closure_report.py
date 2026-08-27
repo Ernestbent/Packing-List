@@ -1,8 +1,6 @@
 # Copyright (c) 2026, Ernest Benedict and contributors
 # For license information, please see license.txt
 
-import json
-
 import frappe
 from frappe import _
 from frappe.utils import add_days, flt, get_datetime, getdate, nowdate
@@ -13,8 +11,8 @@ WORKFLOW_STATES = [
 	("Approved", "Approved"),
 	("Picking", "Picking"),
 	("Packing", "Packing"),
-	("Billed", "Billed"),
-	("In Transit", "Pending for Dispatch"),
+	("daily_billed", "Billed"),
+	("Billed", "Pending for Dispatch"),
 ]
 
 
@@ -52,34 +50,70 @@ def get_data(filters):
 	period_start = get_datetime(filters.closing_date)
 	period_end = get_datetime(add_days(filters.closing_date, 1))
 
-	orders = frappe.db.sql(
+	state_totals = frappe.db.sql(
 		"""
-			SELECT name, workflow_state, base_grand_total
+			SELECT
+				workflow_state,
+				COUNT(DISTINCT name) AS order_count,
+				COALESCE(SUM(base_grand_total), 0) AS order_amount
 			FROM `tabSales Order`
 			WHERE company = %(company)s
-				AND creation < %(period_end)s
+				AND docstatus < 2
+				AND workflow_state IN (
+					'Pending Credit Approval', 'Approved', 'Picking',
+					'Packing', 'Billed'
+				)
+			GROUP BY workflow_state
 		""",
-		{"company": filters.company, "period_end": period_end},
+		{"company": filters.company},
 		as_dict=True,
 	)
-	if not orders:
-		return build_rows({}, set(), {}, filters.closing_date)
+	totals_by_state = {row.workflow_state: row for row in state_totals}
 
-	state_at_close = {order.name: order.workflow_state for order in orders}
-	amount_at_close = {order.name: flt(order.base_grand_total) for order in orders}
-
-	# Version is the audit trail. Reading from newest to oldest lets us reverse
-	# changes made after the selected day's midnight and recover that day's state.
-	versions = frappe.db.sql(
+	# Pending for Dispatch is the current Billed queue. Its amount comes from the
+	# submitted invoices linked to those Billed Sales Orders.
+	pending_dispatch_invoice_rows = frappe.db.sql(
 		"""
-			SELECT v.docname, v.creation, v.data
-			FROM `tabVersion` v
-			INNER JOIN `tabSales Order` so ON so.name = v.docname
-			WHERE v.ref_doctype = 'Sales Order'
-				AND so.company = %(company)s
-				AND so.creation < %(period_end)s
-				AND v.creation >= %(period_start)s
-			ORDER BY v.creation DESC
+			SELECT
+				DISTINCT si.name AS sales_invoice,
+				si.base_grand_total,
+				links.sales_order
+			FROM (
+				SELECT DISTINCT sales_order, parent AS sales_invoice
+				FROM `tabSales Invoice Item`
+				WHERE docstatus = 1 AND IFNULL(sales_order, '') != ''
+			) links
+			INNER JOIN `tabSales Invoice` si
+				ON si.name = links.sales_invoice AND si.docstatus = 1
+			INNER JOIN `tabSales Order` so ON so.name = links.sales_order
+			WHERE so.company = %(company)s
+				AND so.docstatus < 2
+				AND so.workflow_state = 'Billed'
+		""",
+		{"company": filters.company},
+		as_dict=True,
+	)
+	pending_dispatch_amount = sum(
+		{row.sales_invoice: flt(row.base_grand_total) for row in pending_dispatch_invoice_rows}.values()
+	)
+
+	# Billed is daily throughput. Include every submitted Sales Invoice worked on
+	# during the selected date window when it links to at least one Sales Order,
+	# regardless of the Sales Order's creation date or its current workflow state.
+	daily_billed_invoice_rows = frappe.db.sql(
+		"""
+			SELECT
+				DISTINCT si.name AS sales_invoice,
+				si.base_grand_total,
+				sii.sales_order
+			FROM `tabSales Invoice` si
+			INNER JOIN `tabSales Invoice Item` sii
+				ON sii.parent = si.name AND sii.docstatus = 1
+			WHERE si.docstatus = 1
+				AND si.company = %(company)s
+				AND si.modified >= %(period_start)s
+				AND si.modified < %(period_end)s
+				AND IFNULL(sii.sales_order, '') != ''
 		""",
 		{
 			"company": filters.company,
@@ -88,58 +122,42 @@ def get_data(filters):
 		},
 		as_dict=True,
 	)
+	daily_billed = frappe._dict(
+		order_count=len({row.sales_order for row in daily_billed_invoice_rows}),
+		amount=sum(
+			{row.sales_invoice: flt(row.base_grand_total) for row in daily_billed_invoice_rows}.values()
+		),
+	)
 
-	billed_orders = set()
-	for version in versions:
-		changes = get_version_changes(version.data)
-		if period_start <= version.creation < period_end:
-			for fieldname, old_value, new_value in changes:
-				if fieldname == "workflow_state" and old_value == "Billing" and new_value == "Billed":
-					billed_orders.add(version.docname)
-
-		if version.creation < period_end:
-			continue
-
-		for fieldname, old_value, _new_value in changes:
-			if fieldname == "workflow_state":
-				state_at_close[version.docname] = old_value
-			elif fieldname == "base_grand_total":
-				amount_at_close[version.docname] = flt(old_value)
-
-	return build_rows(state_at_close, billed_orders, amount_at_close, filters.closing_date)
+	return build_rows(
+		totals_by_state,
+		daily_billed,
+		pending_dispatch_amount,
+		filters.closing_date,
+	)
 
 
-def get_version_changes(version_data):
-	try:
-		data = json.loads(version_data or "{}")
-	except (TypeError, ValueError):
-		return []
-
-	changes = []
-	for change in data.get("changed") or []:
-		if len(change) >= 3:
-			changes.append((change[0], change[1], change[2]))
-	return changes
-
-
-def build_rows(state_at_close, billed_orders, amount_at_close, closing_date):
-	state_orders = frappe._dict()
-	for order_name, workflow_state in state_at_close.items():
-		state_orders.setdefault(workflow_state, set()).add(order_name)
-
+def build_rows(totals_by_state, daily_billed, pending_dispatch_amount, closing_date):
 	period_remark = "{0} to {1}".format(
 		closing_date.strftime("%d %b"), add_days(closing_date, 1).strftime("%d %b")
 	)
 	rows = []
-	for idx, (workflow_state, label) in enumerate(WORKFLOW_STATES, start=1):
-		order_names = billed_orders if workflow_state == "Billed" else state_orders.get(workflow_state, set())
+	for idx, (report_key, label) in enumerate(WORKFLOW_STATES, start=1):
+		state_total = totals_by_state.get(report_key) or frappe._dict()
+		amount = flt(state_total.get("order_amount"))
+		order_count = state_total.get("order_count") or 0
+		if report_key == "daily_billed":
+			amount = daily_billed.amount
+			order_count = daily_billed.order_count
+		elif report_key == "Billed":
+			amount = pending_dispatch_amount
 		rows.append(
 			{
 				"idx": idx,
 				"status": label,
-				"amount": sum(amount_at_close.get(name, 0) for name in order_names),
-				"order_count": len(order_names),
-				"remark": period_remark if workflow_state == "Billed" else "",
+				"amount": amount,
+				"order_count": order_count,
+				"remark": period_remark if report_key == "daily_billed" else "",
 			}
 		)
 	return rows
