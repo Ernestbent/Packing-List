@@ -58,7 +58,9 @@ def get_data(filters, models):
 		resolved[item_group] = top
 		return top
 
-	conditions = "disabled = 0"
+	# Items without a model cannot populate any of the dynamic price columns.
+	# Excluding them prevents brand/group rows that are completely blank.
+	conditions = "disabled = 0 and custom_model is not null and custom_model != ''"
 	if filters.get("item_group"):
 		conditions += " and item_group = %(item_group)s"
 	if filters.get("brand"):
@@ -75,6 +77,9 @@ def get_data(filters, models):
 	rows = {}
 	for item in items:
 		top = resolve_group(item.item_group)
+		if top == "Products":
+			continue
+
 		sub = "" if item.item_group == top else item.item_group
 		key = (top, sub, item.brand)
 
