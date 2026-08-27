@@ -1,7 +1,101 @@
 // Copyright (c) 2016, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
+const unique_item_tree_types = ["Customer", "Region", "District", "Sales Person", "Route", "Item"];
+const secondary_filter_options = [
+	"",
+	"Customer Group",
+	"Customer",
+	"Region",
+	"District",
+	"Sales Person",
+	"Item Group",
+	"Item",
+	"Route",
+	"Order Type",
+	"Project",
+];
+
+const get_secondary_filter_fields = () =>
+	[1, 2, 3, 4, 5].flatMap((index) => {
+		const suffix = index === 1 ? "" : `_${index}`;
+		const previous_suffix = index === 2 ? "" : `_${index - 1}`;
+		const depends_on =
+			index === 1
+				? undefined
+				: `eval: doc.secondary_filter_by${previous_suffix} && doc.secondary_filter_value${previous_suffix}`;
+
+		return [
+			{
+				fieldname: `secondary_filter_by${suffix}`,
+				label: __(`Filter ${index} By`),
+				fieldtype: "Select",
+				options: secondary_filter_options,
+				depends_on,
+				on_change(report) {
+					report.set_filter_value(`secondary_filter_value${suffix}`, "");
+					for (let next = index + 1; next <= 5; next++) {
+						report.set_filter_value(`secondary_filter_by_${next}`, "");
+						report.set_filter_value(`secondary_filter_value_${next}`, "");
+					}
+				},
+			},
+			{
+				fieldname: `secondary_filter_value${suffix}`,
+				label: __(`Filter ${index} Value`),
+				fieldtype: "Autocomplete",
+				placeholder: __("Select Value"),
+				depends_on: `eval: doc.secondary_filter_by${suffix}`,
+				get_query() {
+					return {
+						query:
+							"autozonepro.autozonepro.report.sales_analytics_apl.sales_analytics_apl.get_secondary_filter_options",
+						params: {
+							filter_by: frappe.query_report.get_filter_value(
+								`secondary_filter_by${suffix}`
+							),
+						},
+					};
+				},
+			},
+		];
+	});
+
+const get_value_quantity_options = (tree_type) => {
+	const options = [
+		{ value: "Value", label: __("Value") },
+		{ value: "Quantity", label: __("Quantity") },
+	];
+	if (unique_item_tree_types.includes(tree_type)) {
+		options.push({ value: "Unique Items", label: __("Unique Items") });
+	}
+	if (tree_type === "Item") {
+		options.push({ value: "Customer Count", label: __("Customer Count") });
+	}
+	return options;
+};
+
+const update_value_quantity_options = (report, refresh_report = false) => {
+	const tree_type = report.get_filter_value("tree_type");
+	const value_filter = report.get_filter("value_quantity");
+	if (!value_filter) return;
+
+	const options = get_value_quantity_options(tree_type);
+	const current_value = value_filter.get_value();
+	value_filter.df.options = options;
+	value_filter.set_options(current_value);
+
+	if (!options.some((option) => option.value === current_value)) {
+		report.set_filter_value("value_quantity", "Value");
+	} else if (refresh_report) {
+		report.refresh(true);
+	}
+};
+
 frappe.query_reports["Sales Analytics APL"] = {
+	onload(report) {
+		update_value_quantity_options(report);
+	},
 	filters: [
 		{
 			fieldname: "tree_type",
@@ -15,12 +109,15 @@ frappe.query_reports["Sales Analytics APL"] = {
 				"Sales Person",
 				"Item Group",
 				"Item",
-				"Territory",
+				"Route",
 				"Order Type",
 				"Project",
 			],
 			default: "Customer",
 			reqd: 1,
+			on_change(report) {
+				update_value_quantity_options(report, true);
+			},
 		},
 		{
 			fieldname: "doc_type",
@@ -34,10 +131,7 @@ frappe.query_reports["Sales Analytics APL"] = {
 			fieldname: "value_quantity",
 			label: __("Value Or Qty"),
 			fieldtype: "Select",
-			options: [
-				{ value: "Value", label: __("Value") },
-				{ value: "Quantity", label: __("Quantity") },
-			],
+			options: get_value_quantity_options("Customer"),
 			default: "Value",
 			reqd: 1,
 		},
@@ -70,8 +164,9 @@ frappe.query_reports["Sales Analytics APL"] = {
 			options: [
 				{ value: "Focus Items", label: __("Focus Items") },
 				{ value: "Slow Moving Items", label: __("Slow Moving Items") },
+				{ value: "All", label: __("All") },
 			],
-			default: "Focus Items",
+			default: "All",
 			reqd: 1,
 			depends_on: "eval: doc.tree_type == 'Item'",
 		},
@@ -89,6 +184,7 @@ frappe.query_reports["Sales Analytics APL"] = {
 			reqd: 1,
 			depends_on: "eval: doc.tree_type == 'Item'",
 		},
+		...get_secondary_filter_fields(),
 		{
 			fieldname: "range",
 			label: __("Range"),
@@ -132,7 +228,7 @@ frappe.query_reports["Sales Analytics APL"] = {
 						: null;
 					const selected_tree_type = frappe.query_report.filters[0].value;
 					const item_dimension = frappe.query_report.get_filter_value("item_dimension");
-					const tree_type = selected_tree_type;
+					const tree_type = selected_tree_type === "Route" ? "Territory" : selected_tree_type;
 					if (data_doctype && data_doctype != tree_type) return;
 
 					const row_name = data[2].content;

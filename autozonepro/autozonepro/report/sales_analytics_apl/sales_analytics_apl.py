@@ -15,7 +15,70 @@ def execute(filters=None):
 	return Analytics(filters).run()
 
 
+@frappe.whitelist()
+def get_secondary_filter_options(filter_by, txt=""):
+	search = f"%{txt}%"
+	if filter_by == "Customer":
+		customers = frappe.get_all(
+			"Customer",
+			filters={"name": ["like", search]},
+			fields=["name", "customer_name"],
+			order_by="name",
+			limit_page_length=50,
+		)
+		return [
+			{"value": d.name, "label": d.name, "description": d.customer_name}
+			for d in customers
+		]
+
+	if filter_by in ["Region", "District", "Route"]:
+		fieldname = filter_by.lower()
+		return frappe.get_all(
+			"Customer",
+			filters=[["Customer", fieldname, "!=", ""], ["Customer", fieldname, "like", search]],
+			pluck=fieldname,
+			distinct=True,
+			order_by=fieldname,
+			limit_page_length=50,
+		)
+
+	if filter_by == "Sales Person":
+		return frappe.get_all(
+			"Sales Team",
+			filters={
+				"parenttype": "Customer",
+				"sales_person": ["like", search],
+			},
+			pluck="sales_person",
+			distinct=True,
+			order_by="sales_person",
+			limit_page_length=50,
+		)
+	if filter_by in ["Customer Group", "Item Group", "Item", "Project"]:
+		doctype = filter_by
+		return frappe.get_all(
+			doctype,
+			filters={"name": ["like", search]},
+			pluck="name",
+			order_by="name",
+			limit_page_length=50,
+		)
+
+	if filter_by == "Order Type":
+		return frappe.get_all(
+			"Sales Order",
+			filters={"docstatus": 1, "order_type": ["like", search]},
+			pluck="order_type",
+			distinct=True,
+			order_by="order_type",
+			limit_page_length=50,
+		)
+
+	return []
+
+
 class Analytics:
+	unique_item_tree_types = ["Customer", "Region", "District", "Sales Person", "Route", "Item"]
 	stock_warehouses = [
 		"Main Loc - APL",
 		"Cont. No. 1 = MAEU-8382503 - APL",
@@ -44,18 +107,132 @@ class Analytics:
 			"Dec",
 		]
 		self.filtered_item_codes = self.get_filtered_item_codes()
+		self.filtered_customer_names = self.get_filtered_customer_names()
 		self.get_period_date_ranges()
 
+	def get_secondary_filters(self):
+		filters = []
+		for index in range(1, 6):
+			suffix = "" if index == 1 else f"_{index}"
+			filter_by = self.filters.get(f"secondary_filter_by{suffix}")
+			filter_value = self.filters.get(f"secondary_filter_value{suffix}")
+			if filter_by and filter_value:
+				filters.append((filter_by, filter_value))
+		return filters
+
 	def get_filtered_item_codes(self):
-		fieldname = (
-			"custom_slow_moving"
-			if self.filters.get("item_classification") == "Slow Moving Items"
-			else "custom_focus_item"
-		)
-		return frappe.get_all("Item", filters={fieldname: 1}, pluck="name")
+		item_classification = self.filters.get("item_classification") or "All"
+		item_filters = {}
+		if self.filters.tree_type == "Item" and item_classification not in ["All", "All Items"]:
+			fieldname = (
+				"custom_slow_moving"
+				if item_classification == "Slow Moving Items"
+				else "custom_focus_item"
+			)
+			item_filters[fieldname] = 1
+
+		for filter_by, filter_value in self.get_secondary_filters():
+			if filter_by == "Item":
+				item_filters["name"] = filter_value
+			elif filter_by == "Item Group":
+				item_filters["item_group"] = filter_value
+
+		if not item_filters:
+			return None
+		return frappe.get_all("Item", filters=item_filters, pluck="name")
 
 	def has_item_filters(self):
-		return self.filters.tree_type == "Item" and self.filtered_item_codes is not None
+		if self.filtered_item_codes is not None:
+			return True
+		return self.filters.doc_type in ["Sales Invoice", "Delivery Note"] and any(
+			filter_by == "Order Type" for filter_by, _filter_value in self.get_secondary_filters()
+		)
+
+	def get_filtered_customer_names(self):
+		customer_names = None
+		for filter_by, filter_value in self.get_secondary_filters():
+			matching_customers = None
+			if filter_by == "Customer":
+				matching_customers = {filter_value}
+			elif filter_by in ["Region", "District", "Route"]:
+				matching_customers = set(
+					frappe.get_all(
+						"Customer", filters={filter_by.lower(): filter_value}, pluck="name"
+					)
+				)
+			elif filter_by == "Sales Person":
+				matching_customers = set(
+					frappe.get_all(
+						"Sales Team",
+						filters={"parenttype": "Customer", "sales_person": filter_value},
+						pluck="parent",
+					)
+				)
+			if matching_customers is not None:
+				customer_names = (
+					matching_customers
+					if customer_names is None
+					else customer_names.intersection(matching_customers)
+				)
+
+		if customer_names is None:
+			return None
+		return list(customer_names)
+
+	def apply_secondary_item_query_filter(self, query, doctype, doctype_item):
+		if self.filtered_customer_names is not None:
+			query = query.where(doctype.customer.isin(self.filtered_customer_names or [""]))
+
+		for filter_by, filter_value in self.get_secondary_filters():
+			if filter_by == "Customer Group":
+				query = query.where(doctype.customer_group == filter_value)
+			elif filter_by == "Project":
+				query = query.where(doctype.project == filter_value)
+			elif filter_by == "Order Type":
+				if self.filters.doc_type == "Sales Order":
+					query = query.where(doctype.order_type == filter_value)
+					continue
+
+				sales_orders = frappe.get_all(
+					"Sales Order",
+					filters={"docstatus": 1, "order_type": filter_value},
+					pluck="name",
+				)
+				if self.filters.doc_type == "Sales Invoice":
+					query = query.where(doctype_item.sales_order.isin(sales_orders or [""]))
+				elif self.filters.doc_type == "Delivery Note":
+					query = query.where(doctype_item.against_sales_order.isin(sales_orders or [""]))
+
+		return query
+
+	def add_secondary_document_filters(self, filters):
+		if self.filtered_customer_names is not None:
+			filters["customer"] = ["in", self.filtered_customer_names or [""]]
+
+		for filter_by, filter_value in self.get_secondary_filters():
+			fieldname = {
+				"Customer Group": "customer_group",
+				"Project": "project",
+			}.get(filter_by)
+			if fieldname:
+				filters[fieldname] = filter_value
+			elif filter_by == "Order Type" and self.filters.doc_type == "Sales Order":
+				filters["order_type"] = filter_value
+
+		return filters
+
+	def apply_secondary_header_query_filter(self, query, doctype):
+		if self.filtered_customer_names is not None:
+			query = query.where(doctype.customer.isin(self.filtered_customer_names or [""]))
+
+		for filter_by, filter_value in self.get_secondary_filters():
+			if filter_by == "Customer Group":
+				query = query.where(doctype.customer_group == filter_value)
+			elif filter_by == "Project":
+				query = query.where(doctype.project == filter_value)
+			elif filter_by == "Order Type" and self.filters.doc_type == "Sales Order":
+				query = query.where(doctype.order_type == filter_value)
+		return query
 
 	def update_company_list_for_parent_company(self):
 		company_list = [self.filters.get("company")]
@@ -76,6 +253,14 @@ class Analytics:
 		self.filters["company"] = company_list
 
 	def run(self):
+		if (
+			self.filters.value_quantity == "Unique Items"
+			and self.filters.tree_type not in self.unique_item_tree_types
+		):
+			frappe.throw(_("Unique Items is not available for the selected Tree Type"))
+		if self.filters.value_quantity == "Customer Count" and self.filters.tree_type != "Item":
+			frappe.throw(_("Customer Count is only available when Tree Type is Item"))
+
 		self.update_company_list_for_parent_company()
 		self.get_columns()
 		self.get_data()
@@ -84,7 +269,7 @@ class Analytics:
 		# Skipping total row for tree-view reports
 		skip_total_row = 0
 
-		if self.filters.tree_type in ["Supplier Group", "Item Group", "Customer Group", "Territory"]:
+		if self.filters.tree_type in ["Supplier Group", "Item Group", "Customer Group"]:
 			skip_total_row = 1
 
 		return self.columns, self.data, None, self.chart, None, skip_total_row
@@ -101,6 +286,8 @@ class Analytics:
 			options = ""
 		elif tree_type == "Group":
 			options = "Item Group"
+		elif tree_type == "Route":
+			options = "Territory"
 
 		self.columns = [
 			{
@@ -155,17 +342,24 @@ class Analytics:
 		for end_date in self.periodic_daterange:
 			period = self.get_period(end_date)
 			self.columns.append(
-				{"label": _(period), "fieldname": scrub(period), "fieldtype": "Float", "width": 120}
+				{
+					"label": _(period),
+					"fieldname": scrub(period),
+					"fieldtype": "Float",
+					"width": 120,
+				}
 			)
 
-		self.columns.append({"label": _("Total"), "fieldname": "total", "fieldtype": "Float", "width": 120})
+		self.columns.append(
+			{"label": _("Total"), "fieldname": "total", "fieldtype": "Float", "width": 120}
+		)
 
 	def get_data(self):
 		if self.filters.tree_type in ["Customer", "Supplier"]:
 			self.get_sales_transactions_based_on_customers_or_suppliers()
 			self.get_rows()
 
-		elif self.filters.tree_type in ["Region", "District", "Sales Person"]:
+		elif self.filters.tree_type in ["Region", "District", "Sales Person", "Route"]:
 			self.get_sales_transactions_based_on_customer_dimension()
 			self.get_rows()
 
@@ -175,7 +369,7 @@ class Analytics:
 			self.get_item_stock()
 			self.get_rows()
 
-		elif self.filters.tree_type in ["Customer Group", "Supplier Group", "Territory"]:
+		elif self.filters.tree_type in ["Customer Group", "Supplier Group"]:
 			self.get_sales_transactions_based_on_customer_or_territory_group()
 			self.get_rows_by_group()
 
@@ -226,11 +420,19 @@ class Analytics:
 			)
 			.orderby(doctype.order_type)
 		)
+		query = self.apply_secondary_header_query_filter(query, doctype)
 		self.entries = query.run(as_dict=True)
 
 		self.get_teams()
 
 	def get_sales_transactions_based_on_customers_or_suppliers(self):
+		if self.filters.value_quantity == "Unique Items":
+			self.entries = self.get_unique_item_entries("customer")
+			self.entity_names = {}
+			for d in self.entries:
+				self.entity_names.setdefault(d.entity, d.customer_name)
+			return
+
 		if self.filters.doc_type == "Sales Loss":
 			self.entries = self.get_sales_loss_entries("customer")
 			self.entity_names = {}
@@ -264,6 +466,7 @@ class Analytics:
 
 		if self.filters.doc_type in ["Sales Invoice", "Purchase Invoice", "Payment Entry"]:
 			filters.update({"is_opening": "No"})
+		filters = self.add_secondary_document_filters(filters)
 		self.entries = frappe.get_all(
 			self.filters.doc_type, fields=[entity, entity_name, value_field, self.date_field], filters=filters
 		)
@@ -273,7 +476,9 @@ class Analytics:
 			self.entity_names.setdefault(d.entity, d.entity_name)
 
 	def get_sales_transactions_based_on_customer_dimension(self):
-		if self.filters.doc_type == "Sales Loss":
+		if self.filters.value_quantity == "Unique Items":
+			transactions = self.get_unique_item_entries()
+		elif self.filters.doc_type == "Sales Loss":
 			transactions = self.get_sales_loss_entries()
 		elif self.has_item_filters():
 			transactions = self.get_filtered_sales_item_entries()
@@ -289,6 +494,7 @@ class Analytics:
 			}
 			if self.filters.doc_type == "Sales Invoice":
 				filters["is_opening"] = "No"
+			filters = self.add_secondary_document_filters(filters)
 
 			transactions = frappe.get_all(
 				self.filters.doc_type,
@@ -300,7 +506,7 @@ class Analytics:
 			self.entries = []
 			return
 
-		if self.filters.tree_type in ["Region", "District"]:
+		if self.filters.tree_type in ["Region", "District", "Route"]:
 			fieldname = self.filters.tree_type.lower()
 			customer_values = frappe.get_all(
 				"Customer",
@@ -365,6 +571,8 @@ class Analytics:
 			.on(doctype.name == doctype_item.parent)
 			.select(
 				doctype_item.item_code.as_("entity"),
+				doctype_item.item_code,
+				doctype.customer,
 				doctype_item.item_name.as_("entity_name"),
 				doctype_item.stock_uom,
 				doctype_item[value_field].as_("value_field"),
@@ -376,6 +584,7 @@ class Analytics:
 				& (doctype[self.date_field].between(self.filters.from_date, self.filters.to_date))
 			)
 		)
+		query = self.apply_secondary_item_query_filter(query, doctype, doctype_item)
 		self.entries = query.run(as_dict=True)
 
 		self.entity_names = {}
@@ -472,6 +681,7 @@ class Analytics:
 
 		if self.filters.doc_type in ["Sales Invoice", "Purchase Invoice", "Payment Entry"]:
 			filters.update({"is_opening": "No"})
+		filters = self.add_secondary_document_filters(filters)
 		self.entries = frappe.get_all(
 			self.filters.doc_type,
 			fields=[entity_field, value_field, self.date_field],
@@ -512,6 +722,7 @@ class Analytics:
 				& (doctype[self.date_field].between(self.filters.from_date, self.filters.to_date))
 			)
 		)
+		query = self.apply_secondary_item_query_filter(query, doctype, doctype_item)
 		self.entries = query.run(as_dict=True)
 
 		self.get_groups()
@@ -540,15 +751,56 @@ class Analytics:
 
 		if self.filters.doc_type in ["Sales Invoice", "Purchase Invoice", "Payment Entry"]:
 			filters.update({"is_opening": "No"})
+		filters = self.add_secondary_document_filters(filters)
 		self.entries = frappe.get_all(
 			self.filters.doc_type, fields=[entity, value_field, self.date_field], filters=filters
 		)
 
+	def get_unique_item_entries(self, entity_field=None):
+		if not hasattr(self, "unique_item_entries"):
+			if self.filters.doc_type == "Sales Loss":
+				self.unique_item_entries = self.get_sales_loss_entries()
+			else:
+				doctype = DocType(self.filters.doc_type)
+				doctype_item = DocType(f"{self.filters.doc_type} Item")
+				query = (
+					frappe.qb.from_(doctype_item)
+					.join(doctype)
+					.on(doctype.name == doctype_item.parent)
+					.select(
+						doctype.customer,
+						doctype.customer_name,
+						doctype_item.item_code,
+						doctype[self.date_field],
+					)
+					.where(
+						(doctype_item.docstatus == 1)
+						& (doctype.company.isin(self.filters.company))
+						& (doctype[self.date_field].between(self.filters.from_date, self.filters.to_date))
+					)
+				)
+				if self.filters.doc_type == "Sales Invoice":
+					query = query.where(doctype.is_opening == "No")
+				if self.filtered_item_codes is not None:
+					query = query.where(doctype_item.item_code.isin(self.filtered_item_codes or [""]))
+				query = self.apply_secondary_item_query_filter(query, doctype, doctype_item)
+				self.unique_item_entries = query.run(as_dict=True)
+
+		entries = []
+		for source in self.unique_item_entries:
+			if not source.item_code:
+				continue
+			entry = frappe._dict(source.copy())
+			entry.value_field = 1
+			if entity_field:
+				entry.entity = source.get(entity_field)
+			entries.append(entry)
+
+		return entries
+
 	def get_filtered_sales_item_entries(self, entity_field=None, require_nonempty=False):
 		if not hasattr(self, "filtered_sales_item_entries"):
 			self.filtered_sales_item_entries = []
-			if not self.filtered_item_codes:
-				return []
 
 			doctype = DocType(self.filters.doc_type)
 			doctype_item = DocType(f"{self.filters.doc_type} Item")
@@ -578,13 +830,15 @@ class Analytics:
 					(doctype_item.docstatus == 1)
 					& (doctype.company.isin(self.filters.company))
 					& (doctype[self.date_field].between(self.filters.from_date, self.filters.to_date))
-					& (doctype_item.item_code.isin(self.filtered_item_codes))
 				)
 			)
+			if self.filtered_item_codes is not None:
+				query = query.where(doctype_item.item_code.isin(self.filtered_item_codes or [""]))
 			if self.filters.doc_type == "Sales Invoice":
 				query = query.where(doctype.is_opening == "No")
 			if self.filters.doc_type == "Sales Order":
 				query = query.select(doctype.order_type)
+			query = self.apply_secondary_item_query_filter(query, doctype, doctype_item)
 
 			self.filtered_sales_item_entries = query.run(as_dict=True)
 
@@ -601,16 +855,28 @@ class Analytics:
 
 	def get_sales_loss_entries(self, entity_field=None, require_nonempty=False):
 		if not hasattr(self, "sales_loss_entries"):
+			order_filters = {
+				"docstatus": 1,
+				"company": ["in", self.filters.company],
+				"transaction_date": (
+					"between",
+					[self.filters.from_date, self.filters.to_date],
+				),
+			}
+			if self.filtered_customer_names is not None:
+				order_filters["customer"] = ["in", self.filtered_customer_names or [""]]
+			for filter_by, filter_value in self.get_secondary_filters():
+				order_field = {
+					"Customer Group": "customer_group",
+					"Project": "project",
+					"Order Type": "order_type",
+				}.get(filter_by)
+				if order_field:
+					order_filters[order_field] = filter_value
+
 			orders = frappe.get_all(
 				"Sales Order",
-				filters={
-					"docstatus": 1,
-					"company": ["in", self.filters.company],
-					"transaction_date": (
-						"between",
-						[self.filters.from_date, self.filters.to_date],
-					),
-				},
+				filters=order_filters,
 				fields=[
 					"name",
 					"customer",
@@ -640,7 +906,7 @@ class Analytics:
 				return []
 
 			item_filters = {"parent": ["in", list(invoiced_orders)]}
-			if self.has_item_filters():
+			if self.filtered_item_codes is not None:
 				item_filters["item_code"] = ["in", self.filtered_item_codes or [""]]
 
 			order_items = frappe.get_all(
@@ -743,8 +1009,12 @@ class Analytics:
 				row[scrub(period)] = amount
 				total += amount
 
-			row["total"] = total
-			if self.filters.tree_type in ["Region", "District", "Sales Person"] and not total:
+			row["total"] = (
+				len(self.entity_unique_values.get(entity, set()))
+				if self.filters.value_quantity in ["Unique Items", "Customer Count"]
+				else total
+			)
+			if self.filters.tree_type in ["Region", "District", "Sales Person", "Route"] and not row["total"]:
 				continue
 			if self.filters.tree_type == "Item":
 				row["stock"] = self.stock_by_entity.get(entity, 0.0)
@@ -781,6 +1051,25 @@ class Analytics:
 
 	def get_periodic_data(self):
 		self.entity_periodic_data = frappe._dict()
+		if self.filters.value_quantity in ["Unique Items", "Customer Count"]:
+			distinct_field = "item_code" if self.filters.value_quantity == "Unique Items" else "customer"
+			period_items = frappe._dict()
+			self.entity_unique_values = frappe._dict()
+			for d in self.entries:
+				distinct_value = d.get(distinct_field)
+				if not distinct_value:
+					continue
+				period = self.get_period(d.get(self.date_field))
+				period_items.setdefault(d.entity, frappe._dict()).setdefault(period, set()).add(
+					distinct_value
+				)
+				self.entity_unique_values.setdefault(d.entity, set()).add(distinct_value)
+
+			for entity, periods in period_items.items():
+				self.entity_periodic_data[entity] = frappe._dict(
+					{period: len(items) for period, items in periods.items()}
+				)
+			return
 
 		for d in self.entries:
 			if self.filters.tree_type == "Supplier Group":
