@@ -8,10 +8,16 @@ frappe.query_reports["Item Group Price List"] = {
 			options: "Item Group",
 		},
 		{
-			fieldname: "brand",
-			label: "Brand",
-			fieldtype: "Link",
-			options: "Brand",
+			fieldname: "model",
+			label: "Model",
+			fieldtype: "Autocomplete",
+			placeholder: __("Model"),
+			get_query() {
+				return {
+					query:
+						"autozonepro.autozonepro.report.item_group_price_list.item_group_price_list.get_model_options",
+				};
+			},
 		},
 	],
 

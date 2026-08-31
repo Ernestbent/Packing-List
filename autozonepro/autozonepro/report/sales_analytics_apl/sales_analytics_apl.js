@@ -184,6 +184,13 @@ frappe.query_reports["Sales Analytics APL"] = {
 			reqd: 1,
 			depends_on: "eval: doc.tree_type == 'Item'",
 		},
+		{
+			fieldname: "price_list",
+			label: __("Price List"),
+			fieldtype: "Link",
+			options: "Price List",
+			depends_on: "eval: doc.tree_type == 'Item'",
+		},
 		...get_secondary_filter_fields(),
 		{
 			fieldname: "range",
@@ -200,69 +207,9 @@ frappe.query_reports["Sales Analytics APL"] = {
 			reqd: 1,
 		},
 		{
-			fieldname: "curves",
-			label: __("Curves"),
-			fieldtype: "Select",
-			options: [
-				{ value: "all", label: __("All") },
-				{ value: "non-zeros", label: __("Non-Zeros") },
-				{ value: "total", label: __("Total Only") },
-			],
-			default: "all",
-			reqd: 1,
-		},
-		{
 			fieldname: "show_aggregate_value_from_subsidiary_companies",
 			label: __("Show Aggregate Value from Subsidiary Companies"),
 			fieldtype: "Check",
 		},
 	],
-	get_datatable_options(options) {
-		return Object.assign(options, {
-			checkboxColumn: true,
-			events: {
-				onCheckRow: function (data) {
-					if (!data) return;
-					const data_doctype = data[2].html
-						? $(data[2].html).attr("data-doctype")
-						: null;
-					const selected_tree_type = frappe.query_report.filters[0].value;
-					const item_dimension = frappe.query_report.get_filter_value("item_dimension");
-					const tree_type = selected_tree_type === "Route" ? "Territory" : selected_tree_type;
-					if (data_doctype && data_doctype != tree_type) return;
-
-					const row_name = data[2].content;
-					const raw_data = frappe.query_report.chart.data;
-					const new_datasets = raw_data.datasets;
-					const element_found = new_datasets.some((element, index, array) => {
-						if (element.name == row_name) {
-							array.splice(index, 1);
-							return true;
-						}
-						return false;
-					});
-					const slice_at =
-						{ Customer: 4, Item: item_dimension ? 7 : 6 }[selected_tree_type] || 3;
-
-					if (!element_found) {
-						new_datasets.push({
-							name: row_name,
-							values: data.slice(slice_at, data.length - 1).map((column) => column.content),
-						});
-					}
-
-					const new_data = {
-						labels: raw_data.labels,
-						datasets: new_datasets,
-					};
-					const new_options = Object.assign({}, frappe.query_report.chart_options, {
-						data: new_data,
-					});
-					frappe.query_report.render_chart(new_options);
-
-					frappe.query_report.raw_chart_data = new_data;
-				},
-			},
-		});
-	},
 };

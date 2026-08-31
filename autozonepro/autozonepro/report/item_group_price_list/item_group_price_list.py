@@ -1,18 +1,36 @@
 import frappe
 
+
 def execute(filters=None):
 	models = get_models(filters)
 	columns = get_columns(models)
-	data = get_data(filters, models)
+	data = get_data(filters)
 	return columns, data
+
+
+@frappe.whitelist()
+def get_model_options(txt=""):
+	return frappe.get_all(
+		"Item",
+		filters=[
+			["Item", "disabled", "=", 0],
+			["Item", "custom_model", "!=", ""],
+			["Item", "custom_model", "like", f"%{txt}%"],
+		],
+		pluck="custom_model",
+		distinct=True,
+		order_by="custom_model",
+		limit_page_length=50,
+	)
+
 
 def get_models(filters):
 	filters = filters or {}
 	conditions = "disabled = 0 and custom_model is not null and custom_model != ''"
 	if filters.get("item_group"):
 		conditions += " and item_group = %(item_group)s"
-	if filters.get("brand"):
-		conditions += " and brand = %(brand)s"
+	if filters.get("model"):
+		conditions += " and custom_model = %(model)s"
 
 	rows = frappe.db.sql("""
 		select distinct custom_model
@@ -23,6 +41,7 @@ def get_models(filters):
 
 	return [row.custom_model for row in rows]
 
+
 def get_columns(models):
 	columns = [
 		{"label": "Group", "fieldname": "group", "fieldtype": "Data", "width": 150},
@@ -30,12 +49,12 @@ def get_columns(models):
 		{"label": "Brand", "fieldname": "brand", "fieldtype": "Data", "width": 100},
 	]
 	for model in models:
-		## fieldname must be safe as a dict key and JS identifier, so strip spaces/dots
 		fieldname = frappe.scrub(model)
 		columns.append({"label": model, "fieldname": fieldname, "fieldtype": "Currency", "width": 100})
 	return columns
 
-def get_data(filters, models):
+
+def get_data(filters):
 	filters = filters or {}
 
 	## walk the Item Group tree once, same as before, to resolve each item's top-level group
@@ -58,22 +77,21 @@ def get_data(filters, models):
 		resolved[item_group] = top
 		return top
 
-	# Items without a model cannot populate any of the dynamic price columns.
-	# Excluding them prevents brand/group rows that are completely blank.
+	# Items without a model cannot populate a dynamic price column.
 	conditions = "disabled = 0 and custom_model is not null and custom_model != ''"
 	if filters.get("item_group"):
 		conditions += " and item_group = %(item_group)s"
-	if filters.get("brand"):
-		conditions += " and brand = %(brand)s"
+	if filters.get("model"):
+		conditions += " and custom_model = %(model)s"
 
 	items = frappe.db.sql("""
 		select item_group, brand, custom_model, standard_rate
 		from `tabItem`
 		where {conditions}
-		order by item_group, brand
+		order by item_group, brand, custom_model
 	""".format(conditions=conditions), filters, as_dict=1)
 
-	## one row per (group, sub_group, brand); models fill in as columns on that row
+	# One row per brand; each corresponding model fills a price column on that row.
 	rows = {}
 	for item in items:
 		top = resolve_group(item.item_group)
@@ -86,8 +104,16 @@ def get_data(filters, models):
 		if key not in rows:
 			rows[key] = {"group": top, "sub_group": sub, "brand": item.brand}
 
-		if item.custom_model:
-			fieldname = frappe.scrub(item.custom_model)
-			rows[key][fieldname] = item.standard_rate
+		fieldname = frappe.scrub(item.custom_model)
+		rows[key][fieldname] = item.standard_rate
 
-	return list(rows.values())
+	# Sort by the resolved first column before the child fields. This keeps every
+	# subgroup/brand belonging to a Group together until that Group is exhausted.
+	return sorted(
+		rows.values(),
+		key=lambda row: (
+			(row.get("group") or "").casefold(),
+			(row.get("sub_group") or "").casefold(),
+			(row.get("brand") or "").casefold(),
+		),
+	)

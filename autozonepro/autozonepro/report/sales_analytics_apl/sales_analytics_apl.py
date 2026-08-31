@@ -1,7 +1,6 @@
 # Copyright (c) 2013, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-
 import frappe
 from frappe import _, scrub
 from frappe.query_builder import DocType
@@ -264,7 +263,6 @@ class Analytics:
 		self.update_company_list_for_parent_company()
 		self.get_columns()
 		self.get_data()
-		self.get_chart_data()
 
 		# Skipping total row for tree-view reports
 		skip_total_row = 0
@@ -272,7 +270,7 @@ class Analytics:
 		if self.filters.tree_type in ["Supplier Group", "Item Group", "Customer Group"]:
 			skip_total_row = 1
 
-		return self.columns, self.data, None, self.chart, None, skip_total_row
+		return self.columns, self.data, None, None, None, skip_total_row
 
 	def get_columns(self):
 		tree_type = self.filters.tree_type
@@ -329,12 +327,24 @@ class Analytics:
 						"width": 240 if dimension == "Description" else 140,
 					}
 				)
+			if self.filters.get("price_list"):
+				self.columns.append(
+					{
+						"label": _("Price ({0})").format(self.filters.price_list),
+						"fieldname": "price_list_rate",
+						"fieldtype": "Currency",
+						"options": "price_list_currency",
+						"precision": 2,
+						"width": 150,
+					}
+				)
 		if self.filters.tree_type == "Item":
 			self.columns.append(
 				{
 					"label": _("Stock"),
 					"fieldname": "stock",
 					"fieldtype": "Float",
+					"precision": 2,
 					"width": 120,
 				}
 			)
@@ -346,12 +356,19 @@ class Analytics:
 					"label": _(period),
 					"fieldname": scrub(period),
 					"fieldtype": "Float",
+					"precision": 2,
 					"width": 120,
 				}
 			)
 
 		self.columns.append(
-			{"label": _("Total"), "fieldname": "total", "fieldtype": "Float", "width": 120}
+			{
+				"label": _("Total"),
+				"fieldname": "total",
+				"fieldtype": "Float",
+				"precision": 2,
+				"width": 120,
+			}
 		)
 
 	def get_data(self):
@@ -366,6 +383,7 @@ class Analytics:
 		elif self.filters.tree_type == "Item":
 			self.get_sales_transactions_based_on_items()
 			self.get_item_dimension_values()
+			self.get_item_price_list_values()
 			self.get_item_stock()
 			self.get_rows()
 
@@ -637,10 +655,61 @@ class Analytics:
 			fields=["item_code", "sum(actual_qty) as actual_qty"],
 			group_by="item_code",
 		)
-		stock_by_item = {d.item_code: flt(d.actual_qty) for d in stock_rows}
+		stock_by_item = {d.item_code: flt(d.actual_qty, 2) for d in stock_rows}
 		for item_code, entity in item_to_entity.items():
 			self.stock_by_entity.setdefault(entity, 0.0)
-			self.stock_by_entity[entity] += stock_by_item.get(item_code, 0.0)
+			self.stock_by_entity[entity] = flt(
+				self.stock_by_entity[entity] + stock_by_item.get(item_code, 0.0), 2
+			)
+
+	def get_item_price_list_values(self):
+		self.item_price_by_entity = frappe._dict()
+		if not self.filters.get("price_list"):
+			return
+
+		item_codes = list({d.get("item_code") or d.get("entity") for d in self.entries if d.get("entity")})
+		if not item_codes:
+			return
+
+		stock_uom_by_item = {
+			d.name: d.stock_uom
+			for d in frappe.get_all(
+				"Item", filters={"name": ["in", item_codes]}, fields=["name", "stock_uom"]
+			)
+		}
+		pricing_date = getdate()
+		item_prices = frappe.get_all(
+			"Item Price",
+			filters={
+				"price_list": self.filters.price_list,
+				"item_code": ["in", item_codes],
+			},
+			fields=[
+				"item_code",
+				"uom",
+				"price_list_rate",
+				"currency",
+				"valid_from",
+				"valid_upto",
+				"customer",
+				"supplier",
+				"batch_no",
+			],
+			order_by="valid_from desc, modified desc",
+		)
+		for price in item_prices:
+			if price.customer or price.supplier or price.batch_no:
+				continue
+			if price.valid_from and getdate(price.valid_from) > pricing_date:
+				continue
+			if price.valid_upto and getdate(price.valid_upto) < pricing_date:
+				continue
+			if price.uom and price.uom != stock_uom_by_item.get(price.item_code):
+				continue
+			self.item_price_by_entity.setdefault(
+				price.item_code,
+				frappe._dict(rate=flt(price.price_list_rate, 2), currency=price.currency),
+			)
 
 	def get_sales_transactions_based_on_customer_or_territory_group(self):
 		if self.filters.doc_type == "Sales Loss":
@@ -1005,14 +1074,15 @@ class Analytics:
 			total = 0
 			for end_date in self.periodic_daterange:
 				period = self.get_period(end_date)
-				amount = flt(period_data.get(period, 0.0))
+				amount = flt(period_data.get(period, 0.0), 2)
 				row[scrub(period)] = amount
 				total += amount
 
-			row["total"] = (
+			row["total"] = flt(
 				len(self.entity_unique_values.get(entity, set()))
 				if self.filters.value_quantity in ["Unique Items", "Customer Count"]
-				else total
+				else total,
+				2,
 			)
 			if self.filters.tree_type in ["Region", "District", "Sales Person", "Route"] and not row["total"]:
 				continue
@@ -1022,6 +1092,10 @@ class Analytics:
 					row["item_dimension_value"] = self.item_dimension_by_entity.get(
 						entity, _("Not Set")
 					)
+				if self.filters.get("price_list"):
+					price = self.item_price_by_entity.get(entity) or frappe._dict()
+					row["price_list_rate"] = price.get("rate")
+					row["price_list_currency"] = price.get("currency")
 
 			if self.filters.tree_type == "Item":
 				row["stock_uom"] = period_data.get("stock_uom")
@@ -1037,14 +1111,14 @@ class Analytics:
 			total = 0
 			for end_date in self.periodic_daterange:
 				period = self.get_period(end_date)
-				amount = flt(self.entity_periodic_data.get(d.name, {}).get(period, 0.0))
+				amount = flt(self.entity_periodic_data.get(d.name, {}).get(period, 0.0), 2)
 				row[scrub(period)] = amount
 				if d.parent and (self.filters.tree_type != "Order Type" or d.parent == "Order Types"):
 					self.entity_periodic_data.setdefault(d.parent, frappe._dict()).setdefault(period, 0.0)
 					self.entity_periodic_data[d.parent][period] += amount
 				total += amount
 
-			row["total"] = total
+			row["total"] = flt(total, 2)
 			out = [row, *out]
 
 		self.data = out
@@ -1191,7 +1265,11 @@ class Analytics:
 		if self.filters.tree_type in ["Customer", "Supplier"]:
 			labels = [d.get("label") for d in self.columns[2 : length - 1]]
 		elif self.filters.tree_type == "Item":
-			start = 5 if self.filters.get("item_dimension") else 4
+			start = 4
+			if self.filters.get("item_dimension"):
+				start += 1
+			if self.filters.get("price_list"):
+				start += 1
 			labels = [d.get("label") for d in self.columns[start : length - 1]]
 		else:
 			labels = [d.get("label") for d in self.columns[1 : length - 1]]
