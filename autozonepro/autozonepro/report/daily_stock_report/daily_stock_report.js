@@ -39,29 +39,15 @@ frappe.query_reports["Daily Stock Report"] = {
 		if (column.fieldname && column.fieldname.startsWith("date_")) {
 			const raw = data[column.fieldname];
 			if (raw === null || raw === undefined) {
-				value = "";
-			} else if (raw === 0) {
-				value = '<span style="color: #bbb;">0</span>';
-			} else if (raw < 0) {
-				value = `<span style="color: #e74c3c; font-weight: 600;">${raw}</span>`;
+				return "";
+			}
+			if (raw === 0) {
+				return '<span style="color: #bbb;">0</span>';
+			}
+			if (raw < 0) {
+				return `<span style="color: #e74c3c; font-weight: 600;">${raw}</span>`;
 			}
 		}
 		return value;
 	},
-
-	onload(report) {
-		report.page.add_inner_button(__("Export to Excel"), () => {
-			open_export_dialog(report, "Excel");
-		});
-		report.page.add_inner_button(__("Export to CSV"), () => {
-			open_export_dialog(report, "CSV");
-		});
-	},
 };
-
-function open_export_dialog(report, file_format) {
-	report.export_report();
-	if (report.export_dialog) {
-		report.export_dialog.set_value("file_format", file_format);
-	}
-}

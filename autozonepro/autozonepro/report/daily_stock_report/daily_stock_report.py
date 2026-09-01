@@ -2,16 +2,15 @@ from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import formatdate, getdate
+from frappe.utils import formatdate, getdate, nowdate
+from frappe.utils.nestedset import get_descendants_of
 
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	validate_filters(filters)
 
-	columns = get_columns(filters)
-	data = get_data(filters)
-	return columns, data
+	return get_columns(filters), get_data(filters)
 
 
 def validate_filters(filters):
@@ -61,7 +60,7 @@ def get_columns(filters):
 			{
 				"label": formatdate(stock_date, "dd MMM yyyy"),
 				"fieldname": get_date_fieldname(stock_date),
-				"fieldtype": "Int",
+				"fieldtype": "Float",
 				"width": 105,
 			}
 		)
@@ -84,6 +83,43 @@ def get_item_conditions(filters):
 	return conditions, query_filters
 
 
+def get_warehouse_condition(filters, table_alias, query_filters):
+	warehouse = filters.get("warehouse")
+	if not warehouse:
+		return ""
+
+	warehouses = [warehouse]
+	if frappe.db.get_value("Warehouse", warehouse, "is_group"):
+		warehouses.extend(get_descendants_of("Warehouse", warehouse, ignore_permissions=True))
+
+	query_filters["warehouses"] = tuple(warehouses)
+	return f" AND {table_alias}.warehouse IN %(warehouses)s"
+
+
+def get_current_bin_balances(filters, item_conditions, query_filters):
+	bin_filters = query_filters.copy()
+	warehouse_condition = get_warehouse_condition(filters, "sbin", bin_filters)
+
+	rows = frappe.db.sql(
+		"""
+		SELECT i.item_code, COALESCE(SUM(sbin.actual_qty), 0) AS qty
+		FROM `tabItem` i
+		LEFT JOIN `tabBin` sbin ON sbin.item_code = i.item_code
+		WHERE i.disabled = 0
+		  {warehouse_condition}
+		  {item_conditions}
+		GROUP BY i.item_code
+		""".format(
+			warehouse_condition=warehouse_condition,
+			item_conditions=item_conditions,
+		),
+		bin_filters,
+		as_dict=True,
+	)
+
+	return {row.item_code: row.qty for row in rows}
+
+
 def get_data(filters):
 	date_range = get_date_range(filters)
 	item_conditions, query_filters = get_item_conditions(filters)
@@ -94,11 +130,7 @@ def get_data(filters):
 		}
 	)
 
-	warehouse_condition = ""
-	if filters.get("warehouse"):
-		warehouse_condition = " AND sle.warehouse = %(warehouse)s"
-		query_filters["warehouse"] = filters.warehouse
-
+	warehouse_condition = get_warehouse_condition(filters, "sle", query_filters)
 	items = frappe.db.sql(
 		"""
 		SELECT i.item_code
@@ -114,17 +146,28 @@ def get_data(filters):
 	if not items:
 		return []
 
-	# Closing stock on the day before From Date.
+	# Historical opening balance: use the last canonical, non-cancelled ledger
+	# balance for every item and warehouse before the selected range.
 	opening_rows = frappe.db.sql(
 		"""
-		SELECT sle.item_code, IFNULL(SUM(sle.actual_qty), 0) AS qty
-		FROM `tabStock Ledger Entry` sle
-		INNER JOIN `tabItem` i ON i.item_code = sle.item_code
-		WHERE sle.docstatus = 1
-		  AND sle.posting_date < %(from_date)s
-		  {warehouse_condition}
-		  {item_conditions}
-		GROUP BY sle.item_code
+		SELECT item_code, warehouse, qty_after_transaction AS qty
+		FROM (
+			SELECT
+				sle.item_code,
+				sle.warehouse,
+				sle.qty_after_transaction,
+				ROW_NUMBER() OVER (
+					PARTITION BY sle.item_code, sle.warehouse
+					ORDER BY sle.posting_datetime DESC, sle.creation DESC
+				) AS row_idx
+			FROM `tabStock Ledger Entry` sle
+			INNER JOIN `tabItem` i ON i.item_code = sle.item_code
+			WHERE sle.is_cancelled = 0
+			  AND sle.posting_date < %(from_date)s
+			  {warehouse_condition}
+			  {item_conditions}
+		) opening_sle
+		WHERE row_idx = 1
 		""".format(
 			warehouse_condition=warehouse_condition,
 			item_conditions=item_conditions,
@@ -132,21 +175,35 @@ def get_data(filters):
 		query_filters,
 		as_dict=True,
 	)
-	opening_balances = {row.item_code: row.qty for row in opening_rows}
 
-	# One bulk query supplies every movement in the requested range. This avoids
-	# running separate Stock Ledger and Bin queries for every individual item.
-	movement_rows = frappe.db.sql(
+	warehouse_balances = {}
+	for row in opening_rows:
+		warehouse_balances.setdefault(row.item_code, {})[row.warehouse] = row.qty
+
+	# For each historical day, ERPNext's final qty_after_transaction is the
+	# authoritative closing quantity for that item and warehouse.
+	daily_closing_rows = frappe.db.sql(
 		"""
-		SELECT sle.item_code, sle.posting_date, SUM(sle.actual_qty) AS movement
-		FROM `tabStock Ledger Entry` sle
-		INNER JOIN `tabItem` i ON i.item_code = sle.item_code
-		WHERE sle.docstatus = 1
-		  AND sle.posting_date BETWEEN %(from_date)s AND %(to_date)s
-		  {warehouse_condition}
-		  {item_conditions}
-		GROUP BY sle.item_code, sle.posting_date
-		ORDER BY sle.item_code, sle.posting_date
+		SELECT item_code, warehouse, posting_date, qty_after_transaction AS qty
+		FROM (
+			SELECT
+				sle.item_code,
+				sle.warehouse,
+				sle.posting_date,
+				sle.qty_after_transaction,
+				ROW_NUMBER() OVER (
+					PARTITION BY sle.item_code, sle.warehouse, sle.posting_date
+					ORDER BY sle.posting_datetime DESC, sle.creation DESC
+				) AS row_idx
+			FROM `tabStock Ledger Entry` sle
+			INNER JOIN `tabItem` i ON i.item_code = sle.item_code
+			WHERE sle.is_cancelled = 0
+			  AND sle.posting_date BETWEEN %(from_date)s AND %(to_date)s
+			  {warehouse_condition}
+			  {item_conditions}
+		) daily_sle
+		WHERE row_idx = 1
+		ORDER BY item_code, posting_date, warehouse
 		""".format(
 			warehouse_condition=warehouse_condition,
 			item_conditions=item_conditions,
@@ -155,22 +212,38 @@ def get_data(filters):
 		as_dict=True,
 	)
 
-	movements = {}
-	for row in movement_rows:
-		movements.setdefault(row.item_code, {})[getdate(row.posting_date)] = row.movement
+	daily_closings = {}
+	for row in daily_closing_rows:
+		daily_closings.setdefault(row.item_code, {}).setdefault(
+			getdate(row.posting_date), []
+		).append((row.warehouse, row.qty))
+
+	# Today's quantity must agree exactly with Daily Stock Level and Stock Bin.
+	current_date = getdate(nowdate())
+	current_bin_balances = {}
+	if current_date in date_range:
+		current_bin_balances = get_current_bin_balances(
+			filters, item_conditions, query_filters
+		)
 
 	data = []
 	for item in items:
-		running_balance = opening_balances.get(item.item_code, 0)
-		item_movements = movements.get(item.item_code, {})
+		item_warehouse_balances = warehouse_balances.get(item.item_code, {}).copy()
+		item_daily_closings = daily_closings.get(item.item_code, {})
 		entry = {
 			"item_code": item.item_code,
 			"warehouse": filters.get("warehouse") or "All Warehouses - APL",
 		}
 
 		for stock_date in date_range:
-			running_balance += item_movements.get(stock_date, 0)
-			entry[get_date_fieldname(stock_date)] = int(round(running_balance))
+			for warehouse, closing_qty in item_daily_closings.get(stock_date, []):
+				item_warehouse_balances[warehouse] = closing_qty
+
+			closing_balance = sum(item_warehouse_balances.values())
+			if stock_date == current_date:
+				closing_balance = current_bin_balances.get(item.item_code, 0)
+
+			entry[get_date_fieldname(stock_date)] = closing_balance
 
 		data.append(entry)
 
