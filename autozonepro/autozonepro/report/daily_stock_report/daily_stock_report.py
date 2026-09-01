@@ -1,175 +1,177 @@
+from datetime import timedelta
+
 import frappe
 from frappe import _
-import calendar
-from datetime import date
+from frappe.utils import formatdate, getdate
 
 
 def execute(filters=None):
-    filters = frappe._dict(filters or {})
+	filters = frappe._dict(filters or {})
+	validate_filters(filters)
 
-    if not filters.month or not filters.year:
-        frappe.throw(_("Please select Month and Year"))
+	columns = get_columns(filters)
+	data = get_data(filters)
+	return columns, data
 
-    columns = get_columns(filters)
-    data = get_data(filters)
-    return columns, data
+
+def validate_filters(filters):
+	if not filters.from_date or not filters.to_date:
+		frappe.throw(_("Please select From Date and To Date"))
+
+	if getdate(filters.from_date) > getdate(filters.to_date):
+		frappe.throw(_("From Date cannot be after To Date"))
+
+
+def get_date_range(filters):
+	current_date = getdate(filters.from_date)
+	to_date = getdate(filters.to_date)
+	dates = []
+
+	while current_date <= to_date:
+		dates.append(current_date)
+		current_date += timedelta(days=1)
+
+	return dates
+
+
+def get_date_fieldname(stock_date):
+	return f"date_{stock_date.strftime('%Y_%m_%d')}"
 
 
 def get_columns(filters):
-    month = int(filters.month)
-    year = int(filters.year)
-    days_in_month = calendar.monthrange(year, month)[1]
+	columns = [
+		{
+			"label": _("Item Code"),
+			"fieldname": "item_code",
+			"fieldtype": "Link",
+			"options": "Item",
+			"width": 180,
+		},
+		{
+			"label": _("Warehouse"),
+			"fieldname": "warehouse",
+			"fieldtype": "Link",
+			"options": "Warehouse",
+			"width": 180,
+		},
+	]
 
-    columns = [
-        {
-            "label": _("Item Code"),
-            "fieldname": "item_code",
-            "fieldtype": "Link",
-            "options": "Item",
-            "width": 180
-        },
-        {
-            "label": _("Warehouse"),
-            "fieldname": "warehouse",
-            "fieldtype": "Link",
-            "options": "Warehouse",
-            "width": 180
-        },
-    ]
+	for stock_date in get_date_range(filters):
+		columns.append(
+			{
+				"label": formatdate(stock_date, "dd MMM yyyy"),
+				"fieldname": get_date_fieldname(stock_date),
+				"fieldtype": "Int",
+				"width": 105,
+			}
+		)
 
-    ## Add one column per day in the selected month
-    for day in range(1, days_in_month + 1):
-        columns.append({
-            "label": str(day),
-            "fieldname": "day_{}".format(day),
-            "fieldtype": "Int",
-            "width": 60
-        })
+	return columns
 
-    return columns
+
+def get_item_conditions(filters):
+	conditions = ""
+	query_filters = {}
+
+	if filters.get("item_code"):
+		conditions += " AND i.item_code = %(item_code)s"
+		query_filters["item_code"] = filters.item_code
+
+	if filters.get("item_group"):
+		conditions += " AND i.item_group = %(item_group)s"
+		query_filters["item_group"] = filters.item_group
+
+	return conditions, query_filters
 
 
 def get_data(filters):
-    month = int(filters.month)
-    year  = int(filters.year)
-    days_in_month = calendar.monthrange(year, month)[1]
+	date_range = get_date_range(filters)
+	item_conditions, query_filters = get_item_conditions(filters)
+	query_filters.update(
+		{
+			"from_date": getdate(filters.from_date),
+			"to_date": getdate(filters.to_date),
+		}
+	)
 
-    ## Cap the last visible day to today if viewing the current month
-    today = date.today()
-    last_day_to_show = days_in_month
-    if year == today.year and month == today.month:
-        last_day_to_show = today.day
+	warehouse_condition = ""
+	if filters.get("warehouse"):
+		warehouse_condition = " AND sle.warehouse = %(warehouse)s"
+		query_filters["warehouse"] = filters.warehouse
 
-    from_date = "{}-{:02d}-01".format(year, month)
-    to_date   = "{}-{:02d}-{:02d}".format(year, month, days_in_month)
+	items = frappe.db.sql(
+		"""
+		SELECT i.item_code
+		FROM `tabItem` i
+		WHERE i.disabled = 0
+		  {item_conditions}
+		ORDER BY i.item_code
+		""".format(item_conditions=item_conditions),
+		query_filters,
+		as_dict=True,
+	)
 
-    ## Build optional item filters
-    item_conditions = ""
-    item_filters    = {}
+	if not items:
+		return []
 
-    if filters.get("item_code"):
-        item_conditions += " AND i.item_code = %(item_code)s"
-        item_filters["item_code"] = filters.item_code
+	# Closing stock on the day before From Date.
+	opening_rows = frappe.db.sql(
+		"""
+		SELECT sle.item_code, IFNULL(SUM(sle.actual_qty), 0) AS qty
+		FROM `tabStock Ledger Entry` sle
+		INNER JOIN `tabItem` i ON i.item_code = sle.item_code
+		WHERE sle.docstatus = 1
+		  AND sle.posting_date < %(from_date)s
+		  {warehouse_condition}
+		  {item_conditions}
+		GROUP BY sle.item_code
+		""".format(
+			warehouse_condition=warehouse_condition,
+			item_conditions=item_conditions,
+		),
+		query_filters,
+		as_dict=True,
+	)
+	opening_balances = {row.item_code: row.qty for row in opening_rows}
 
-    if filters.get("item_group"):
-        item_conditions += " AND i.item_group = %(item_group)s"
-        item_filters["item_group"] = filters.item_group
+	# One bulk query supplies every movement in the requested range. This avoids
+	# running separate Stock Ledger and Bin queries for every individual item.
+	movement_rows = frappe.db.sql(
+		"""
+		SELECT sle.item_code, sle.posting_date, SUM(sle.actual_qty) AS movement
+		FROM `tabStock Ledger Entry` sle
+		INNER JOIN `tabItem` i ON i.item_code = sle.item_code
+		WHERE sle.docstatus = 1
+		  AND sle.posting_date BETWEEN %(from_date)s AND %(to_date)s
+		  {warehouse_condition}
+		  {item_conditions}
+		GROUP BY sle.item_code, sle.posting_date
+		ORDER BY sle.item_code, sle.posting_date
+		""".format(
+			warehouse_condition=warehouse_condition,
+			item_conditions=item_conditions,
+		),
+		query_filters,
+		as_dict=True,
+	)
 
-    ## Pull ALL active items
-    all_items = frappe.db.sql("""
-        SELECT i.item_code
-        FROM `tabItem` i
-        WHERE i.disabled = 0
-          {conditions}
-        ORDER BY i.item_code
-    """.format(conditions=item_conditions), item_filters, as_dict=True)
+	movements = {}
+	for row in movement_rows:
+		movements.setdefault(row.item_code, {})[getdate(row.posting_date)] = row.movement
 
-    if not all_items:
-        return []
+	data = []
+	for item in items:
+		running_balance = opening_balances.get(item.item_code, 0)
+		item_movements = movements.get(item.item_code, {})
+		entry = {
+			"item_code": item.item_code,
+			"warehouse": filters.get("warehouse") or "All Warehouses - APL",
+		}
 
-    ## Warehouse filter for SLE and Bin queries
-    warehouse_filters   = {}
-    warehouse_condition = ""
-    if filters.get("warehouse"):
-        warehouse_condition = " AND warehouse = %(warehouse)s"
-        warehouse_filters["warehouse"] = filters.warehouse
+		for stock_date in date_range:
+			running_balance += item_movements.get(stock_date, 0)
+			entry[get_date_fieldname(stock_date)] = int(round(running_balance))
 
-    data = []
+		data.append(entry)
 
-    for row in all_items:
-        item_code = row.item_code
-
-        ## Step 1: Get current live balance from tabBin (source of truth)
-        bin_data = frappe.db.sql("""
-            SELECT IFNULL(SUM(actual_qty), 0) AS qty
-            FROM `tabBin`
-            WHERE item_code = %(item_code)s
-              {warehouse_condition}
-        """.format(warehouse_condition=warehouse_condition),
-        {**{"item_code": item_code}, **warehouse_filters},
-        as_dict=True)
-
-        current_live_qty = bin_data[0].qty if bin_data else 0
-
-        ## Step 2: Get all SLE movements from day 1 of month up to today
-        ## We need this to reconstruct each day's balance by working backwards
-        daily_data = frappe.db.sql("""
-            SELECT DAY(posting_date) AS day, SUM(actual_qty) AS movement
-            FROM `tabStock Ledger Entry`
-            WHERE docstatus = 1
-              AND item_code = %(item_code)s
-              AND DATE(posting_date) BETWEEN %(from_date)s AND %(to_date)s
-              {warehouse_condition}
-            GROUP BY DAY(posting_date)
-        """.format(warehouse_condition=warehouse_condition),
-        {**{"item_code": item_code, "from_date": from_date, "to_date": to_date}, **warehouse_filters},
-        as_dict=True)
-
-        daily_movement = {d.day: d.movement for d in daily_data}
-
-        ## Step 3: Get SLE movements AFTER today up to end of month
-        ## These need to be excluded since tabBin already reflects them if any
-        future_data = frappe.db.sql("""
-            SELECT IFNULL(SUM(actual_qty), 0) AS qty
-            FROM `tabStock Ledger Entry`
-            WHERE docstatus = 1
-              AND item_code = %(item_code)s
-              AND DATE(posting_date) > %(today)s
-              AND DATE(posting_date) <= %(to_date)s
-              {warehouse_condition}
-        """.format(warehouse_condition=warehouse_condition),
-        {**{"item_code": item_code, "today": today.strftime("%Y-%m-%d"), "to_date": to_date}, **warehouse_filters},
-        as_dict=True)
-
-        future_qty = future_data[0].qty if future_data else 0
-
-        ## Step 4: Balance at end of today = live bin qty minus any future movements
-        balance_at_today = current_live_qty - future_qty
-
-        ## Step 5: Work backwards from today to day 1 to get each day's closing balance
-        ## day_balances[day] = closing balance at end of that day
-        day_balances = {}
-        running = balance_at_today
-
-        for day in range(last_day_to_show, 0, -1):
-            day_balances[day] = running
-            ## Subtract this day's movement to get the previous day's closing balance
-            running -= daily_movement.get(day, 0)
-
-        entry = {
-            "item_code": item_code,
-            ## Show filtered warehouse or fall back to root warehouse group
-            "warehouse": filters.get("warehouse") or "All Warehouses - APL",
-        }
-
-        ## Fill in each day - future days blank, past days from backwards calculation
-        for day in range(1, days_in_month + 1):
-            if day > last_day_to_show:
-                ## Future day - leave empty
-                entry["day_{}".format(day)] = None
-            else:
-                entry["day_{}".format(day)] = int(round(day_balances.get(day, 0), 0))
-
-        data.append(entry)
-
-    return data
+	return data
