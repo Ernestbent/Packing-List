@@ -77,6 +77,7 @@ def get_secondary_filter_options(filter_by, txt=""):
 
 
 class Analytics:
+	MILLION = 1_000_000
 	unique_item_tree_types = ["Customer", "Region", "District", "Sales Person", "Route", "Item"]
 	stock_warehouses = [
 		"Main Loc - APL",
@@ -353,7 +354,9 @@ class Analytics:
 			period = self.get_period(end_date)
 			self.columns.append(
 				{
-					"label": _(period),
+					"label": _("{0} (M)").format(period)
+					if self.filters.value_quantity == "Value"
+					else _(period),
 					"fieldname": scrub(period),
 					"fieldtype": "Float",
 					"precision": 2,
@@ -363,7 +366,9 @@ class Analytics:
 
 		self.columns.append(
 			{
-				"label": _("Total"),
+				"label": _("Total (M)")
+				if self.filters.value_quantity == "Value"
+				else _("Total"),
 				"fieldname": "total",
 				"fieldtype": "Float",
 				"precision": 2,
@@ -1074,15 +1079,14 @@ class Analytics:
 			total = 0
 			for end_date in self.periodic_daterange:
 				period = self.get_period(end_date)
-				amount = flt(period_data.get(period, 0.0), 2)
-				row[scrub(period)] = amount
+				amount = flt(period_data.get(period, 0.0))
+				row[scrub(period)] = self.get_display_value(amount)
 				total += amount
 
-			row["total"] = flt(
+			row["total"] = self.get_display_value(
 				len(self.entity_unique_values.get(entity, set()))
 				if self.filters.value_quantity in ["Unique Items", "Customer Count"]
-				else total,
-				2,
+				else total
 			)
 			if self.filters.tree_type in ["Region", "District", "Sales Person", "Route"] and not row["total"]:
 				continue
@@ -1111,17 +1115,22 @@ class Analytics:
 			total = 0
 			for end_date in self.periodic_daterange:
 				period = self.get_period(end_date)
-				amount = flt(self.entity_periodic_data.get(d.name, {}).get(period, 0.0), 2)
-				row[scrub(period)] = amount
+				amount = flt(self.entity_periodic_data.get(d.name, {}).get(period, 0.0))
+				row[scrub(period)] = self.get_display_value(amount)
 				if d.parent and (self.filters.tree_type != "Order Type" or d.parent == "Order Types"):
 					self.entity_periodic_data.setdefault(d.parent, frappe._dict()).setdefault(period, 0.0)
 					self.entity_periodic_data[d.parent][period] += amount
 				total += amount
 
-			row["total"] = flt(total, 2)
+			row["total"] = self.get_display_value(total)
 			out = [row, *out]
 
 		self.data = out
+
+	def get_display_value(self, value):
+		if self.filters.value_quantity == "Value":
+			value = flt(value) / self.MILLION
+		return flt(value, 2)
 
 	def get_periodic_data(self):
 		self.entity_periodic_data = frappe._dict()
@@ -1263,22 +1272,25 @@ class Analytics:
 		length = len(self.columns)
 
 		if self.filters.tree_type in ["Customer", "Supplier"]:
-			labels = [d.get("label") for d in self.columns[2 : length - 1]]
+			period_columns = self.columns[2 : length - 1]
 		elif self.filters.tree_type == "Item":
 			start = 4
 			if self.filters.get("item_dimension"):
 				start += 1
 			if self.filters.get("price_list"):
 				start += 1
-			labels = [d.get("label") for d in self.columns[start : length - 1]]
+			period_columns = self.columns[start : length - 1]
 		else:
-			labels = [d.get("label") for d in self.columns[1 : length - 1]]
+			period_columns = self.columns[1 : length - 1]
+
+		labels = [column.get("label") for column in period_columns]
+		fieldnames = [column.get("fieldname") for column in period_columns]
 
 		datasets = []
 		for curve in self.data:
 			data = {
 				"name": curve.get("entity_name") or curve["entity"],
-				"values": [curve.get(scrub(label), 0) for label in labels],
+				"values": [curve.get(fieldname, 0) for fieldname in fieldnames],
 			}
 			if self.filters.curves == "non-zeros" and not sum(data["values"]):
 				continue
