@@ -46,6 +46,7 @@ app_license = "mit"
 doctype_js = {
     "Sales Order": [
         "public/js/hide_sales_order_butttons.js",
+        "public/js/keep_gate_pass_on_sales_order_cancel.js",
         # "public/js/update_delivery_note.js",
         # "public/js/verify_packing_list.js",
         "public/js/get_courier_details.js",
@@ -166,7 +167,8 @@ doctype_list_js = {
 
 doc_events = {
     "Sales Invoice": {
-        "on_submit": "autozonepro.autozonepro.custom_scripts.sales_invoice_hooks.on_submit"
+        "on_submit": "autozonepro.autozonepro.custom_scripts.sales_invoice_hooks.on_submit",
+        "on_cancel": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.allow_gate_pass_link_on_cancel",
     },
     "Gate Pass": {
         "on_submit": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.on_submit"
@@ -186,7 +188,8 @@ doc_events = {
             "autozonepro.autozonepro.custom_scripts.check_packing_lists.before_update_after_submit",
         ],
         "before_submit": "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
-        "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit"
+        "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
+        "on_cancel": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.allow_gate_pass_link_on_cancel",
     },
 }
 
@@ -219,9 +222,10 @@ override_doctype_class = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "autozonepro.event.get_events"
-# }
+override_whitelisted_methods = {
+    "frappe.desk.form.linked_with.get_submitted_linked_docs": "autozonepro.autozonepro.custom_scripts.linked_document_cancellation.get_submitted_linked_docs",
+    "frappe.desk.form.linked_with.cancel_all_linked_docs": "autozonepro.autozonepro.custom_scripts.linked_document_cancellation.cancel_all_linked_docs",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
@@ -232,7 +236,7 @@ override_doctype_class = {
 
 # exempt linked doctypes from being automatically cancelled
 #
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
+auto_cancel_exempted_doctypes = ["Gate Pass"]
 
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------

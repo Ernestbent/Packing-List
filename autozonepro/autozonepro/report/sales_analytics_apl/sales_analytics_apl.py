@@ -387,6 +387,7 @@ class Analytics:
 
 		elif self.filters.tree_type == "Item":
 			self.get_sales_transactions_based_on_items()
+			self.get_item_master_data()
 			self.get_item_dimension_values()
 			self.get_item_price_list_values()
 			self.get_item_stock()
@@ -614,12 +615,40 @@ class Analytics:
 		for d in self.entries:
 			self.entity_names.setdefault(d.entity, d.entity_name)
 
+	def get_item_master_data(self):
+		self.item_master_by_entity = frappe._dict()
+		if not self.filters.get("show_items_with_no_sales"):
+			return
+
+		item_filters = {"disabled": 0, "is_sales_item": 1}
+		if self.filtered_item_codes is not None:
+			item_filters["name"] = ["in", self.filtered_item_codes or [""]]
+
+		items = frappe.get_all(
+			"Item",
+			filters=item_filters,
+			fields=["name", "item_name", "stock_uom"],
+			order_by="name",
+		)
+		for item in items:
+			self.item_master_by_entity[item.name] = item
+			self.entity_names.setdefault(item.name, item.item_name)
+
+	def get_report_item_codes(self):
+		item_codes = {
+			d.get("item_code") or d.get("entity")
+			for d in self.entries
+			if d.get("item_code") or d.get("entity")
+		}
+		item_codes.update(getattr(self, "item_master_by_entity", {}).keys())
+		return sorted(item_codes)
+
 	def get_item_dimension_values(self):
 		self.item_dimension_by_entity = frappe._dict()
 		if not self.filters.get("item_dimension"):
 			return
 
-		item_codes = list({d.entity for d in self.entries if d.entity})
+		item_codes = self.get_report_item_codes()
 		if not item_codes:
 			return
 		fieldname = {
@@ -641,11 +670,7 @@ class Analytics:
 			self.item_dimension_by_entity[item_code] = value or _("Not Set")
 
 	def get_item_stock(self):
-		item_to_entity = {}
-		for entry in self.entries:
-			item_code = entry.get("item_code") or entry.get("entity")
-			if item_code:
-				item_to_entity[item_code] = entry.entity
+		item_to_entity = {item_code: item_code for item_code in self.get_report_item_codes()}
 
 		self.stock_by_entity = frappe._dict()
 		if not item_to_entity:
@@ -672,7 +697,7 @@ class Analytics:
 		if not self.filters.get("price_list"):
 			return
 
-		item_codes = list({d.get("item_code") or d.get("entity") for d in self.entries if d.get("entity")})
+		item_codes = self.get_report_item_codes()
 		if not item_codes:
 			return
 
@@ -1070,11 +1095,19 @@ class Analytics:
 	def get_rows(self):
 		self.data = []
 		self.get_periodic_data()
+		if self.filters.tree_type == "Item" and self.filters.get("show_items_with_no_sales"):
+			for item_code in self.item_master_by_entity:
+				self.entity_periodic_data.setdefault(item_code, frappe._dict())
 
 		for entity, period_data in self.entity_periodic_data.items():
+			item_master = getattr(self, "item_master_by_entity", {}).get(entity) or frappe._dict()
 			row = {
 				"entity": entity,
-				"entity_name": self.entity_names.get(entity) if hasattr(self, "entity_names") else None,
+				"entity_name": (
+					self.entity_names.get(entity)
+					if hasattr(self, "entity_names")
+					else item_master.get("item_name")
+				),
 			}
 			total = 0
 			for end_date in self.periodic_daterange:
@@ -1102,7 +1135,7 @@ class Analytics:
 					row["price_list_currency"] = price.get("currency")
 
 			if self.filters.tree_type == "Item":
-				row["stock_uom"] = period_data.get("stock_uom")
+				row["stock_uom"] = period_data.get("stock_uom") or item_master.get("stock_uom")
 
 			self.data.append(row)
 

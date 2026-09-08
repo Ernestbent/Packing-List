@@ -3,6 +3,16 @@ from frappe import _
 from frappe.model.workflow import apply_workflow, get_transitions
 
 
+def allow_gate_pass_link_on_cancel(doc, method=None):
+    """Keep Gate Pass history without blocking linked-document cancellation."""
+    ignored_doctypes = doc.get("ignore_linked_doctypes") or ()
+    if isinstance(ignored_doctypes, str):
+        ignored_doctypes = (ignored_doctypes,)
+
+    if "Gate Pass" not in ignored_doctypes:
+        doc.ignore_linked_doctypes = (*ignored_doctypes, "Gate Pass")
+
+
 def on_submit(doc, method):
     sales_orders = []
 

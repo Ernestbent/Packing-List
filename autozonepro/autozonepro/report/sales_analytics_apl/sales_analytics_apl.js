@@ -191,6 +191,13 @@ frappe.query_reports["Sales Analytics APL"] = {
 			options: "Price List",
 			depends_on: "eval: doc.tree_type == 'Item'",
 		},
+		{
+			fieldname: "show_items_with_no_sales",
+			label: __("Include Zero Sale Items"),
+			fieldtype: "Check",
+			default: 0,
+			depends_on: "eval: doc.tree_type == 'Item'",
+		},
 		...get_secondary_filter_fields(),
 		{
 			fieldname: "range",
