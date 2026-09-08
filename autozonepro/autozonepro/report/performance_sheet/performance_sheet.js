@@ -34,14 +34,35 @@ frappe.query_reports["Performance Sheet"] = {   // ← Change to match your new 
     formatter: function(value, row, column, data, default_formatter) {
         value = default_formatter(value, row, column, data);
 
-        if (data && data._is_first_row) {
-            value = `<span style="
+        if (!data) {
+            return value;
+        }
+
+        const displayValue = value !== null && value !== undefined ? value : "";
+
+        const activityTotalFields = [
+            "total_qty_packed",
+            "total_qty_verified",
+            "total_amount"
+        ];
+
+        if (data._is_first_row) {
+            return `<span style="
                 display: block;
                 background-color: #fff0f0;
                 border-top: 2px solid #e74c3c;
                 padding: 2px 4px;
                 font-weight: 600;
-            ">${value !== null && value !== undefined ? value : ""}</span>`;
+            ">${displayValue}</span>`;
+        }
+
+        if (activityTotalFields.includes(column.fieldname)) {
+            return `<span style="
+                display: block;
+                background-color: #eaf4fb;
+                padding: 2px 4px;
+                font-weight: 600;
+            ">${displayValue}</span>`;
         }
 
         return value;

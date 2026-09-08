@@ -36,10 +36,15 @@ def get_columns(num_days):
     columns.append({"label": _("Total Picking"), "fieldname": "total_picking", "fieldtype": "Int", "width": 100})
     columns.append({"label": _("Total Verified"), "fieldname": "total_verified", "fieldtype": "Int", "width": 100})
     columns.append({"label": _("Total Dispatched"), "fieldname": "total_dispatched", "fieldtype": "Int", "width": 110})
+    columns.append({"label": _("Total Qty Packed"), "fieldname": "total_qty_packed", "fieldtype": "Int", "width": 120})
+    columns.append({"label": _("Total Qty Verified"), "fieldname": "total_qty_verified", "fieldtype": "Int", "width": 125})
+    columns.append({"label": _("Total Amount"), "fieldname": "total_amount", "fieldtype": "Currency", "width": 145, "precision": 0})
 
     return columns
 
 def get_data(month, year, num_days):
+    params = {"month": month, "year": year}
+
     # ───────── PACKING (from Packing List) ─────────
     packing_rows = frappe.db.sql("""
     SELECT
@@ -54,7 +59,7 @@ def get_data(month, year, num_days):
         AND custom_packer IS NOT NULL
         AND custom_packer != ''
         AND custom_packer != 'Select'
-    """, {"month": month, "year": year}, as_dict=True)
+    """, params, as_dict=True)
 
     # ───────── PICKING from Packing List ─────────
     picking_rows_packing = frappe.db.sql("""
@@ -70,7 +75,7 @@ def get_data(month, year, num_days):
         AND custom_picker IS NOT NULL
         AND custom_picker != ''
         AND custom_picker != 'Select'
-    """, {"month": month, "year": year}, as_dict=True)
+    """, params, as_dict=True)
 
     # ───────── PICKING from Pick List ─────────
     picking_rows_picklist = frappe.db.sql("""
@@ -87,7 +92,7 @@ def get_data(month, year, num_days):
         AND custom_picker != ''
         AND custom_picker != 'Select'
     GROUP BY custom_picker, DAY(modified)
-    """, {"month": month, "year": year}, as_dict=True)
+    """, params, as_dict=True)
 
     # ───────── VERIFY ─────────
     verifier_rows = frappe.db.sql("""
@@ -102,7 +107,72 @@ def get_data(month, year, num_days):
         AND YEAR(custom_date) = %(year)s
         AND modified_by IS NOT NULL
         AND modified_by != ''
-    """, {"month": month, "year": year}, as_dict=True)
+    """, params, as_dict=True)
+
+    # Packed/verified value follows the picked-value logic: actual packed
+    # quantity multiplied by the matching Sales Order Item net rate.
+    value_rows = frappe.db.sql("""
+    SELECT
+        pl.custom_packer AS packer,
+        pl.custom_picker AS picker,
+        pl.modified_by AS verifier,
+        SUM(COALESCE(packed_item.qty, 0) * COALESCE(soi.net_rate, 0)) AS packed_amount,
+        SUM(COALESCE(picked_item.qty, 0) * COALESCE(soi.net_rate, 0)) AS picked_amount
+    FROM `tabPacking List` pl
+    INNER JOIN (
+        SELECT parent, item, SUM(qty) AS qty
+        FROM `tabItems`
+        WHERE parenttype = 'Packing List'
+            AND parentfield = 'table_ttya'
+        GROUP BY parent, item
+    ) picked_item
+        ON picked_item.parent = pl.name
+    LEFT JOIN (
+        SELECT parent, item, SUM(quantity) AS qty
+        FROM `tabPackaging Details`
+        WHERE parenttype = 'Packing List'
+            AND parentfield = 'table_hqkk'
+        GROUP BY parent, item
+    ) packed_item
+        ON packed_item.parent = pl.name
+        AND packed_item.item = picked_item.item
+    LEFT JOIN (
+        SELECT
+            parent,
+            item_code,
+            CASE
+                WHEN SUM(qty) != 0 THEN SUM(net_amount) / SUM(qty)
+                ELSE MAX(net_rate)
+            END AS net_rate
+        FROM `tabSales Order Item`
+        GROUP BY parent, item_code
+    ) soi
+        ON soi.parent = pl.custom_sales_order
+        AND soi.item_code = picked_item.item
+    WHERE pl.docstatus = 1
+        AND MONTH(pl.custom_date) = %(month)s
+        AND YEAR(pl.custom_date) = %(year)s
+        AND pl.custom_sales_order IS NOT NULL
+        AND pl.custom_sales_order != ''
+    GROUP BY pl.custom_packer, pl.custom_picker, pl.modified_by
+    """, params, as_dict=True)
+
+    amount_by_activity = {
+        "Packing": {},
+        "Picking": {},
+        "Verify": {},
+    }
+    for value_row in value_rows:
+        activity_values = {
+            "Packing": (value_row.get("packer"), value_row.get("packed_amount") or 0),
+            "Picking": (value_row.get("picker"), value_row.get("picked_amount") or 0),
+            "Verify": (value_row.get("verifier"), value_row.get("packed_amount") or 0),
+        }
+
+        for activity, (person, amount) in activity_values.items():
+            if person and person != "Select":
+                person_amounts = amount_by_activity[activity]
+                person_amounts[person] = person_amounts.get(person, 0) + amount
 
     # ───────── DISPATCH (placeholder) ─────────
     dispatch_rows = []
@@ -127,7 +197,17 @@ def get_data(month, year, num_days):
     SELECT DISTINCT custom_picker AS person
     FROM `tabPick List`
     WHERE custom_picker IS NOT NULL AND custom_picker != '' AND custom_picker != 'Select'
-    """, as_dict=True)
+
+    UNION
+
+    SELECT DISTINCT modified_by AS person
+    FROM `tabPacking List`
+    WHERE docstatus = 1
+        AND MONTH(custom_date) = %(month)s
+        AND YEAR(custom_date) = %(year)s
+        AND modified_by IS NOT NULL
+        AND modified_by != ''
+    """, params, as_dict=True)
 
     persons = sorted({r["person"] for r in all_persons_result if r.get("person")})
 
@@ -183,6 +263,13 @@ def get_data(month, year, num_days):
             row["total_picking"] = None
             row["total_verified"] = None
             row["total_dispatched"] = None
+            row["total_qty_packed"] = total if activity == "Packing" else None
+            row["total_qty_verified"] = total if activity == "Verify" else None
+            row["total_amount"] = (
+                round(amount_by_activity[activity].get(person, 0), 2)
+                if activity in amount_by_activity
+                else None
+            )
 
             totals_by_activity[activity] = total
             person_rows.append(row)
