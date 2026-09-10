@@ -617,12 +617,15 @@ class Analytics:
 
 	def get_item_master_data(self):
 		self.item_master_by_entity = frappe._dict()
-		if not self.filters.get("show_items_with_no_sales"):
+		item_codes = self.get_report_item_codes()
+		if self.filters.get("show_items_with_no_sales"):
+			item_filters = {"disabled": 0, "is_sales_item": 1}
+			if self.filtered_item_codes is not None:
+				item_filters["name"] = ["in", self.filtered_item_codes or [""]]
+		elif item_codes:
+			item_filters = {"name": ["in", item_codes]}
+		else:
 			return
-
-		item_filters = {"disabled": 0, "is_sales_item": 1}
-		if self.filtered_item_codes is not None:
-			item_filters["name"] = ["in", self.filtered_item_codes or [""]]
 
 		items = frappe.get_all(
 			"Item",
@@ -632,7 +635,9 @@ class Analytics:
 		)
 		for item in items:
 			self.item_master_by_entity[item.name] = item
-			self.entity_names.setdefault(item.name, item.item_name)
+			# Transaction item names are snapshots. Display the current Item master
+			# name so a rename is reflected whenever the report is refreshed.
+			self.entity_names[item.name] = item.item_name
 
 	def get_report_item_codes(self):
 		item_codes = {

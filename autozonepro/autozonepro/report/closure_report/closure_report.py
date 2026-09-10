@@ -47,6 +47,8 @@ def get_columns():
 
 
 def get_data(filters):
+	# A Sales Order can retain its workflow_state while it is placed on hold.
+	# Held orders must not be included in the active closure queues.
 	state_totals = frappe.db.sql(
 		"""
 			SELECT
@@ -56,6 +58,7 @@ def get_data(filters):
 			FROM `tabSales Order`
 			WHERE company = %(company)s
 				AND docstatus < 2
+				AND IFNULL(status, '') NOT IN ('Hold', 'On Hold', 'Closed')
 				AND workflow_state IN (
 					'Pending Credit Approval', 'Approved', 'Picking',
 					'Packing', 'Billed'
@@ -85,6 +88,7 @@ def get_data(filters):
 			INNER JOIN `tabSales Order` so ON so.name = links.sales_order
 			WHERE so.company = %(company)s
 				AND so.docstatus < 2
+				AND IFNULL(so.status, '') NOT IN ('Hold', 'On Hold', 'Closed')
 				AND so.workflow_state = 'Billed'
 		""",
 		{"company": filters.company},
