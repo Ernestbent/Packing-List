@@ -25,7 +25,6 @@ def validate_unique_reference_no_for_restricted_modes(doc):
 		select name, mode_of_payment
 		from `tabPayment Entry`
 		where trim(reference_no) = %s
-			and lower(trim(mode_of_payment)) in ('bank', 'mobile money')
 			and docstatus != 2
 			and name != %s
 		limit 1
@@ -42,7 +41,7 @@ def validate_unique_reference_no_for_restricted_modes(doc):
 			).format(
 				frappe.bold(reference_no),
 				get_link_to_form("Payment Entry", duplicate.name),
-				frappe.bold(duplicate.mode_of_payment),
+				frappe.bold(duplicate.mode_of_payment or _("Not Set")),
 			),
 			title=_("Duplicate Reference No"),
 		)
