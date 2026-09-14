@@ -176,6 +176,9 @@ doc_events = {
     "Pick List": {
         "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
     },
+    "Payment Entry": {
+        "validate": "autozonepro.autozonepro.custom_scripts.payment_entry_hooks.validate"
+    },
     "Sales Order": {
         # "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
         "validate": [
