@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint, escape_html, flt
 
 
 MAIN_LOCATION_WAREHOUSE = "Main Loc - APL"
@@ -25,68 +25,115 @@ def before_update_after_submit(doc, method=None):
     if current_state != "Picking" or previous_state == "Picking":
         return
 
-    item_codes = [row.item_code for row in doc.items if row.item_code]
-    if not item_codes:
-        return
+    validate_create_pick_list_stock(doc)
 
-    stock_by_item = get_pick_list_stock_by_item(item_codes)
-    insufficient_rows = []
 
+def validate_create_pick_list_stock(doc):
+    """Reject the workflow transition using current stock, before the state is saved."""
+    required = {}
     for row in doc.items:
         if not row.item_code:
             continue
+        # Bin quantities are in stock UOM, not necessarily the order's selling UOM.
+        qty = flt(row.qty) * (flt(row.get("conversion_factor")) or 1)
+        if row.item_code not in required:
+            required[row.item_code] = {
+                "item_code": row.item_code,
+                "item_name": row.item_name or row.item_code,
+                "required_qty": 0,
+                "uom": row.get("stock_uom") or row.uom,
+            }
+        required[row.item_code]["required_qty"] += qty
 
-        stock = stock_by_item.get(row.item_code, {})
-        main_qty = flt(stock.get("main_qty"))
-        container_qty = flt(stock.get("container_qty"))
-        ordered_qty = flt(row.qty)
-
-        if container_qty > 0 and ordered_qty > main_qty:
-            insufficient_rows.append(
-                {
-                    "item_code": row.item_code,
-                    "item_name": row.item_name,
-                    "ordered_qty": ordered_qty,
-                    "main_qty": main_qty,
-                    "container_qty": container_qty,
-                    "uom": row.uom,
-                }
-            )
-
-    if not insufficient_rows:
+    if not required:
         return
 
-    item_lines = "".join(
-        "<li>{item_code} ({item_name}) - Ordered: <b>{ordered_qty:g}</b>, Main Location: "
-        "<b>{main_qty:g}</b>, Containers: <b>{container_qty:g}</b> {uom}</li>".format(
-            item_code=frappe.bold(row["item_code"]),
-            item_name=frappe.utils.escape_html(row["item_name"] or ""),
-            ordered_qty=row["ordered_qty"],
-            main_qty=row["main_qty"],
-            container_qty=row["container_qty"],
-            uom=frappe.utils.escape_html(row["uom"] or ""),
-        )
-        for row in insufficient_rows
+    stock_by_item = get_pick_list_stock_by_item(list(required))
+    insufficient = []
+    for item_code, item in required.items():
+        stock = stock_by_item.get(item_code, {})
+        main_qty = flt(stock.get("main_qty"))
+        # Preserve the existing rule: this warning is for stock held in containers.
+        if flt(stock.get("container_qty")) > 0 and item["required_qty"] > main_qty:
+            insufficient.append({**item, **stock, "main_qty": main_qty})
+
+    if insufficient:
+        throw_stock_shortfall(insufficient, doc.company)
+
+
+def throw_stock_shortfall(items, company):
+    headings = [
+        _("Item Code"), _("Item Name"), _("Required Qty (Stock UOM)"),
+        _("Main Loc Qty"), _("Cont 1 (MAEU-8382503)"), _("Cont 2 (FTBU-8875500)"), _("UOM"),
+    ]
+    header = "".join("<th>{0}</th>".format(escape_html(label)) for label in headings)
+    rows = []
+    for item in items:
+        values = [
+            item["item_code"], item["item_name"], "{0:g}".format(item["required_qty"]),
+            "{0:g}".format(item["main_qty"]), "{0:g}".format(item.get("container_1_qty", 0)),
+            "{0:g}".format(item.get("container_2_qty", 0)), item["uom"],
+        ]
+        rows.append("<tr>{0}</tr>".format("".join("<td>{0}</td>".format(escape_html(value)) for value in values)))
+
+    message = _(
+        "Cannot complete <b>Create Pick List</b> because stock in the Main Location is less "
+        "than the required quantity. The Sales Order has not moved to Picking."
     )
+    message += "<p>{0}</p>".format(_(
+        "Transfer stock from the containers to {0} using a Stock Entry, then try Create Pick List again."
+    ).format(escape_html(MAIN_LOCATION_WAREHOUSE)))
+    message += (
+        '<div style="overflow-x:auto"><table class="table table-bordered">'
+        '<thead><tr>{0}</tr></thead><tbody>{1}</tbody></table></div>'
+    ).format(header, "".join(rows))
 
     frappe.throw(
-        _(
-            "Cannot move this Sales Order to <b>Picking</b> because Main Location stock is short "
-            "for the items below, even though stock exists in the containers."
-            "<br><br><ul>{0}</ul>"
-            "<br>Transfer stock from the containers to <b>{1}</b> before creating the Pick List."
-        ).format(item_lines, frappe.bold(MAIN_LOCATION_WAREHOUSE)),
-        title=_("Stock Shortfall In Main Location"),
+        message,
+        title=_("Stock Shortfall in Main Location"),
+        wide=True,
+        primary_action={
+            "label": _("Make Stock Entry"),
+            "client_action": "autozonepro.open_main_location_transfer",
+            "args": {"company": company, "items": get_transfer_items(items)},
+        },
     )
+
+
+def get_transfer_items(items):
+    """Prepare unsaved transfers in stock UOM, splitting between containers if needed."""
+    transfers = []
+    for item in items:
+        remaining = item["required_qty"] - item["main_qty"]
+        containers = sorted(
+            zip(CONTAINER_WAREHOUSES, (flt(item.get("container_1_qty")), flt(item.get("container_2_qty")))),
+            key=lambda entry: entry[1], reverse=True,
+        )
+        for warehouse, available in containers:
+            qty = min(remaining, max(available, 0))
+            if qty <= 0:
+                continue
+            transfers.append({
+                "item_code": item["item_code"], "qty": qty, "uom": item["uom"],
+                "stock_uom": item["uom"], "conversion_factor": 1,
+                "s_warehouse": warehouse, "t_warehouse": MAIN_LOCATION_WAREHOUSE,
+            })
+            remaining -= qty
+    return transfers
 
 
 def get_pick_list_stock_by_item(item_codes):
+    if not item_codes:
+        return {}
+
     rows = frappe.db.sql(
         """
         select
             item_code,
             sum(case when warehouse = %(main_warehouse)s then actual_qty else 0 end) as main_qty,
-            sum(case when warehouse in %(container_warehouses)s then actual_qty else 0 end) as container_qty
+            sum(case when warehouse in %(container_warehouses)s then actual_qty else 0 end) as container_qty,
+            sum(case when warehouse = %(container_1)s then actual_qty else 0 end) as container_1_qty,
+            sum(case when warehouse = %(container_2)s then actual_qty else 0 end) as container_2_qty
         from `tabBin`
         where item_code in %(item_codes)s
           and warehouse in %(warehouses)s
@@ -96,6 +143,8 @@ def get_pick_list_stock_by_item(item_codes):
             "item_codes": tuple(item_codes),
             "main_warehouse": MAIN_LOCATION_WAREHOUSE,
             "container_warehouses": CONTAINER_WAREHOUSES,
+            "container_1": CONTAINER_WAREHOUSES[0],
+            "container_2": CONTAINER_WAREHOUSES[1],
             "warehouses": (MAIN_LOCATION_WAREHOUSE, *CONTAINER_WAREHOUSES),
         },
         as_dict=True,
@@ -105,6 +154,8 @@ def get_pick_list_stock_by_item(item_codes):
         row.item_code: {
             "main_qty": flt(row.main_qty),
             "container_qty": flt(row.container_qty),
+            "container_1_qty": flt(row.container_1_qty),
+            "container_2_qty": flt(row.container_2_qty),
         }
         for row in rows
     }
