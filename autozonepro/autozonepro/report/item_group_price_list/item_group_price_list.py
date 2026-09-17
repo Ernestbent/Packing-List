@@ -114,7 +114,7 @@ def get_data(filters):
 		conditions += " and custom_model in %(models)s"
 
 	items = frappe.db.sql("""
-		select item_group, brand, custom_model, standard_rate, image
+		select item_code, item_group, brand, custom_model, standard_rate, image
 		from `tabItem`
 		where {conditions}
 		order by item_group, brand, custom_model, item_code
@@ -136,10 +136,12 @@ def get_data(filters):
 				"sub_group": sub,
 				"brand": item.brand,
 				"picture": None,
+				"_item_codes": {},
 			}
 
 		fieldname = frappe.scrub(item.custom_model)
 		rows[key][fieldname] = item.standard_rate
+		rows[key]["_item_codes"][fieldname] = item.item_code
 		if item.image and not rows[key]["picture"]:
 			rows[key]["picture"] = item.image
 

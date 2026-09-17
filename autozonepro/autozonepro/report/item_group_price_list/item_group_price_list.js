@@ -61,7 +61,15 @@ frappe.query_reports["Item Group Price List"] = {
 				return "";
 			}
 			const whole_price = Math.round(Number(price)).toLocaleString("en-US");
-			return `<div style="width:100%; text-align:right; font-weight:600;">${whole_price}</div>`;
+			const item_code = data && data._item_codes && data._item_codes[column.fieldname];
+			if (!item_code) {
+				return `<div style="width:100%; text-align:right; font-weight:600;">${whole_price}</div>`;
+			}
+
+			const item_url = frappe.utils.escape_html(
+				frappe.utils.get_form_link("Item", item_code)
+			);
+			return `<div style="width:100%; text-align:right; font-weight:600;"><a href="${item_url}">${whole_price}</a></div>`;
 		}
 
 		return formatted_value;
