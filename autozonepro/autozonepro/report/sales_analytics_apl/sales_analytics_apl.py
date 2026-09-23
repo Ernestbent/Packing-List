@@ -393,6 +393,10 @@ class Analytics:
 			self.get_item_stock()
 			self.get_rows()
 
+		elif self.filters.tree_type == "Brand":
+			self.get_sales_transactions_based_on_brand()
+			self.get_rows()
+
 		elif self.filters.tree_type in ["Customer Group", "Supplier Group"]:
 			self.get_sales_transactions_based_on_customer_or_territory_group()
 			self.get_rows_by_group()
@@ -498,6 +502,25 @@ class Analytics:
 		self.entity_names = {}
 		for d in self.entries:
 			self.entity_names.setdefault(d.entity, d.entity_name)
+
+	def get_sales_transactions_based_on_brand(self):
+		self.get_sales_transactions_based_on_items()
+		item_codes = self.get_report_item_codes()
+		brand_by_item = (
+			{
+				d.name: d.brand
+				for d in frappe.get_all(
+					"Item",
+					filters={"name": ["in", item_codes]},
+					fields=["name", "brand"],
+				)
+			}
+			if item_codes
+			else {}
+		)
+
+		for entry in self.entries:
+			entry.entity = brand_by_item.get(entry.get("item_code")) or _("Not Set")
 
 	def get_sales_transactions_based_on_customer_dimension(self):
 		if self.filters.value_quantity == "Unique Items":

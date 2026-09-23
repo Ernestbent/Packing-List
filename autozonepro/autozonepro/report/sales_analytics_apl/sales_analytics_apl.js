@@ -109,6 +109,7 @@ frappe.query_reports["Sales Analytics APL"] = {
 				"Sales Person",
 				"Item Group",
 				"Item",
+				"Brand",
 				"Route",
 				"Order Type",
 				"Project",
