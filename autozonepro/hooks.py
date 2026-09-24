@@ -207,6 +207,14 @@ override_doctype_class = {
 # Scheduled Tasks
 # ---------------
 
+scheduler_events = {
+    "cron": {
+        "0 7 * * *": [
+            "autozonepro.autozonepro.custom_scripts.price_change_mail.send_price_changes",
+        ],
+    }
+}
+
 # scheduler_events = {,
 #     "cron": {
 #         "0 7 * * *": [
