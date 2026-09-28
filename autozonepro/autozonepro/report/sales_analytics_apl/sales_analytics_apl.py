@@ -150,7 +150,11 @@ class Analytics:
 
 	def get_filtered_customer_names(self):
 		customer_names = None
-		for filter_by, filter_value in self.get_secondary_filters():
+		customer_filters = self.get_secondary_filters()
+		if self.filters.tree_type == "Brand" and self.filters.get("brand_sales_person"):
+			customer_filters.append(("Sales Person", self.filters.brand_sales_person))
+
+		for filter_by, filter_value in customer_filters:
 			matching_customers = None
 			if filter_by == "Customer":
 				matching_customers = {filter_value}

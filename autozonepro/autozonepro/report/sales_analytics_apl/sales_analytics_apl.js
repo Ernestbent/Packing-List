@@ -159,6 +159,13 @@ frappe.query_reports["Sales Analytics APL"] = {
 			reqd: 1,
 		},
 		{
+			fieldname: "brand_sales_person",
+			label: __("Sales Person"),
+			fieldtype: "Link",
+			options: "Sales Person",
+			depends_on: "eval: doc.tree_type == 'Brand'",
+		},
+		{
 			fieldname: "item_classification",
 			label: __("Item Classification"),
 			fieldtype: "Select",
