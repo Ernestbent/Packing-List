@@ -1,9 +1,11 @@
 # Copyright (c) 2026, Ernest Benedict and contributors
 # For license information, please see license.txt
 
+import json
+
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate, nowdate
+from frappe.utils import add_days, flt, get_datetime, getdate, nowdate
 
 
 WORKFLOW_STATES = [
@@ -13,6 +15,7 @@ WORKFLOW_STATES = [
 	("Packing", "Packing"),
 	("daily_billed", "Billed"),
 	("Billed", "Pending for Dispatch"),
+	("daily_dispatched", "Dispatched"),
 ]
 
 
@@ -110,10 +113,13 @@ def get_data(filters):
 			FROM `tabSales Invoice` si
 			INNER JOIN `tabSales Invoice Item` sii
 				ON sii.parent = si.name AND sii.docstatus = 1
+			INNER JOIN `tabSales Order` so ON so.name = sii.sales_order
 			WHERE si.docstatus = 1
 				AND si.company = %(company)s
 				AND si.posting_date = %(closing_date)s
 				AND IFNULL(sii.sales_order, '') != ''
+				AND so.docstatus < 2
+				AND IFNULL(so.status, '') NOT IN ('Hold', 'On Hold', 'Closed')
 		""",
 		{
 			"company": filters.company,
@@ -128,15 +134,63 @@ def get_data(filters):
 		),
 	)
 
+	## Dispatched is daily throughput. Use the audit trail so orders that moved on
+	## to another workflow state are still counted on the day they were dispatched.
+	dispatch_versions = frappe.db.sql(
+		"""
+			SELECT
+				v.docname,
+				v.data,
+				so.base_grand_total
+			FROM `tabVersion` v
+			INNER JOIN `tabSales Order` so ON so.name = v.docname
+			WHERE v.ref_doctype = 'Sales Order'
+				AND v.creation >= %(period_start)s
+				AND v.creation < %(period_end)s
+				AND so.company = %(company)s
+				AND so.docstatus < 2
+				AND IFNULL(so.status, '') NOT IN ('Hold', 'On Hold', 'Closed')
+				AND v.data LIKE '%%"workflow_state"%%Dispatched%%'
+		""",
+		{
+			"company": filters.company,
+			"period_start": get_datetime(filters.closing_date),
+			"period_end": get_datetime(add_days(filters.closing_date, 1)),
+		},
+		as_dict=True,
+	)
+	dispatched_orders = {
+		row.docname: flt(row.base_grand_total)
+		for row in dispatch_versions
+		if any(
+			fieldname == "workflow_state" and new_value == "Dispatched"
+			for fieldname, _old_value, new_value in get_version_changes(row.data)
+		)
+	}
+	daily_dispatched = frappe._dict(
+		order_count=len(dispatched_orders),
+		amount=sum(dispatched_orders.values()),
+	)
+
 	return build_rows(
 		totals_by_state,
 		daily_billed,
+		daily_dispatched,
 		pending_dispatch_amount,
 		filters.closing_date,
 	)
 
 
-def build_rows(totals_by_state, daily_billed, pending_dispatch_amount, closing_date):
+def get_version_changes(version_data):
+	try:
+		data = json.loads(version_data or "{}")
+	except (TypeError, ValueError):
+		return []
+
+	return [change[:3] for change in (data.get("changed") or []) if len(change) >= 3]
+
+
+def build_rows(totals_by_state, daily_billed, daily_dispatched, pending_dispatch_amount, closing_date):
 	period_remark = closing_date.strftime("%d %b")
 	rows = []
 	for idx, (report_key, label) in enumerate(WORKFLOW_STATES, start=1):
@@ -146,6 +200,9 @@ def build_rows(totals_by_state, daily_billed, pending_dispatch_amount, closing_d
 		if report_key == "daily_billed":
 			amount = daily_billed.amount
 			order_count = daily_billed.order_count
+		elif report_key == "daily_dispatched":
+			amount = daily_dispatched.amount
+			order_count = daily_dispatched.order_count
 		elif report_key == "Billed":
 			amount = pending_dispatch_amount
 		rows.append(
@@ -154,7 +211,7 @@ def build_rows(totals_by_state, daily_billed, pending_dispatch_amount, closing_d
 				"status": label,
 				"amount": amount,
 				"order_count": order_count,
-				"remark": period_remark if report_key == "daily_billed" else "",
+				"remark": period_remark if report_key in ("daily_billed", "daily_dispatched") else "",
 			}
 		)
 	return rows
