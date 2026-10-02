@@ -403,6 +403,26 @@ def get_data(month, year, num_days):
                      "activity": "Billing", "day_num": r["day_num"], "qty": r["qty"]}
                     for r in billing_rows_raw]
 
+    ## BILLED SALES ORDER AMOUNT: net value of each Sales Order moved from
+    ## Packed to Billing, attributed to the user who performed the transition.
+    billed_so_amount_raw = frappe.db.sql("""
+        SELECT
+            v.owner AS person,
+            SUM(COALESCE(so.net_total, 0)) AS amount
+        FROM `tabVersion` v
+        INNER JOIN `tabSales Order` so ON so.name = v.docname
+        WHERE v.ref_doctype = 'Sales Order'
+            AND MONTH(v.creation) = %(month)s
+            AND YEAR(v.creation)  = %(year)s
+            AND v.data LIKE '%%"workflow_state"%%Packed%%Billing%%'
+        GROUP BY v.owner
+    """, params, as_dict=True)
+
+    billed_so_amount_by_person = {}
+    for r in billed_so_amount_raw:
+        person = resolve_name(r["person"], user_name_map)
+        billed_so_amount_by_person[person] = billed_so_amount_by_person.get(person, 0) + (r["amount"] or 0)
+
     ## DISPATCH: Version table — who changed workflow from In Transit to Dispatched
     dispatch_rows_raw = frappe.db.sql("""
         SELECT
@@ -469,6 +489,7 @@ def get_data(month, year, num_days):
         "Packing": packed_so_amount_by_person,
         "Picking": picked_so_amount_by_person,
         "Verify": verified_so_amount_by_person,
+        "Billing": billed_so_amount_by_person,
         "Dispatch": dispatched_so_amount_by_person,
     }
 

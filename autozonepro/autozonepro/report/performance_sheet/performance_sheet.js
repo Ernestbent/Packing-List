@@ -80,5 +80,71 @@ frappe.query_reports["Performance Sheet"] = {
         }
 
         return value;
+    },
+
+    after_datatable_render(datatable) {
+        const wrapper = $(frappe.query_report.$report_wrapper);
+        const wrapperElement = wrapper.get(0);
+        if (!wrapperElement) return;
+
+        wrapper.addClass("performance-sheet-report");
+
+        // DataTable inserts its row-number column before Employee Name. Keep
+        // both columns together so employee names remain visible while the
+        // rest of the report scrolls horizontally.
+        const rowNumberHeader = datatable.getColumnHeaderElement(0);
+        const rowNumberWidth = rowNumberHeader ? rowNumberHeader.offsetWidth : 40;
+        wrapperElement.style.setProperty("--performance-sheet-row-number-width", `${rowNumberWidth}px`);
+
+        if (!document.getElementById("performance-sheet-sticky-columns")) {
+            const style = document.createElement("style");
+            style.id = "performance-sheet-sticky-columns";
+            style.textContent = `
+                .performance-sheet-report .datatable .dt-scrollable .dt-cell--col-0 {
+                    position: sticky;
+                    left: 0;
+                    z-index: 4;
+                    background: var(--fg-color);
+                }
+                .performance-sheet-report .datatable .dt-scrollable .dt-cell--col-1 {
+                    position: sticky;
+                    left: var(--performance-sheet-row-number-width);
+                    z-index: 4;
+                    background: var(--fg-color);
+                    box-shadow: 2px 0 3px rgba(0, 0, 0, 0.12);
+                }
+                .performance-sheet-report .datatable .dt-header .dt-cell--col-0,
+                .performance-sheet-report .datatable .dt-header .dt-cell--col-1,
+                .performance-sheet-report .datatable .dt-footer .dt-cell--col-0,
+                .performance-sheet-report .datatable .dt-footer .dt-cell--col-1 {
+                    z-index: 5;
+                    background: var(--fg-color);
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        const frozenHeaderCells = datatable.header.querySelectorAll(
+            ".dt-cell--col-0, .dt-cell--col-1"
+        );
+        const frozenFooterCells = datatable.footer.querySelectorAll(
+            ".dt-cell--col-0, .dt-cell--col-1"
+        );
+        const syncFrozenHeaders = () => {
+            const offset = datatable.bodyScrollable.scrollLeft;
+            [...frozenHeaderCells, ...frozenFooterCells].forEach((cell) => {
+                cell.style.transform = `translateX(${offset}px)`;
+            });
+        };
+
+        if (datatable.bodyScrollable._performanceSheetStickyHandler) {
+            datatable.bodyScrollable.removeEventListener(
+                "scroll",
+                datatable.bodyScrollable._performanceSheetStickyHandler
+            );
+        }
+        datatable.bodyScrollable._performanceSheetStickyHandler = syncFrozenHeaders;
+        datatable.bodyScrollable.addEventListener("scroll", syncFrozenHeaders);
+        syncFrozenHeaders();
     }
 };
