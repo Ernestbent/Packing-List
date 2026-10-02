@@ -218,6 +218,45 @@ def get_data(month, year, num_days):
         person = resolve_name(r["person"], user_name_map)
         picked_so_amount_by_person[person] = picked_so_amount_by_person.get(person, 0) + (r["amount"] or 0)
 
+    ## PACKED SALES ORDER AMOUNT: packed item qty x Sales Order Item net rate.
+    ## Packing and picking use the same Packing List items, attributed to their
+    ## respective people.
+    packed_so_amount_raw = frappe.db.sql("""
+        SELECT
+            pl.custom_packer AS person,
+            SUM(COALESCE(pli.qty, 0) * COALESCE(soi.net_rate, 0)) AS amount
+        FROM `tabPacking List` pl
+        INNER JOIN `tabItems` pli
+            ON pli.parent = pl.name
+            AND pli.parenttype = 'Packing List'
+            AND pli.parentfield = 'table_ttya'
+        LEFT JOIN (
+            SELECT
+                parent,
+                item_code,
+                CASE
+                    WHEN SUM(qty) != 0 THEN SUM(net_amount) / SUM(qty)
+                    ELSE MAX(net_rate)
+                END AS net_rate
+            FROM `tabSales Order Item`
+            GROUP BY parent, item_code
+        ) soi
+            ON soi.parent = pl.custom_sales_order
+            AND soi.item_code = pli.item
+        WHERE pl.docstatus = 1
+            AND MONTH(pl.custom_date) = %(month)s
+            AND YEAR(pl.custom_date)  = %(year)s
+            AND pl.custom_packer IS NOT NULL
+            AND pl.custom_packer NOT IN ('', 'Select')
+            AND pl.custom_sales_order IS NOT NULL
+            AND pl.custom_sales_order != ''
+        GROUP BY pl.custom_packer
+    """, params, as_dict=True)
+
+    packed_so_amount_by_person = {}
+    for r in packed_so_amount_raw:
+        person = resolve_name(r["person"], user_name_map)
+        packed_so_amount_by_person[person] = packed_so_amount_by_person.get(person, 0) + (r["amount"] or 0)
 
     ## VERIFY ORDERS: Verifier 1 = owner who submitted, Verifier 2 = custom_verifier_2
     ## Pull raw rows then deduplicate by (resolved_name, sales_order) in Python
@@ -268,6 +307,84 @@ def get_data(month, year, num_days):
     verifier_rows = [{"person": name, "activity": "Verify", "day_num": day_num, "qty": qty}
                      for (name, day_num), qty in verify_map.items()]
 
+    ## VERIFIED SALES ORDER AMOUNT: value of the Packing List items handled by
+    ## each verifier. UNION prevents double counting when verifier 1 and 2 are
+    ## the same person on the same Packing List.
+    verified_so_amount_raw = frappe.db.sql("""
+        SELECT person, SUM(amount) AS amount
+        FROM (
+            SELECT
+                pl.name AS packing_list,
+                pl.owner AS person,
+                SUM(COALESCE(pli.qty, 0) * COALESCE(soi.net_rate, 0)) AS amount
+            FROM `tabPacking List` pl
+            INNER JOIN `tabItems` pli
+                ON pli.parent = pl.name
+                AND pli.parenttype = 'Packing List'
+                AND pli.parentfield = 'table_ttya'
+            LEFT JOIN (
+                SELECT
+                    parent,
+                    item_code,
+                    CASE
+                        WHEN SUM(qty) != 0 THEN SUM(net_amount) / SUM(qty)
+                        ELSE MAX(net_rate)
+                    END AS net_rate
+                FROM `tabSales Order Item`
+                GROUP BY parent, item_code
+            ) soi
+                ON soi.parent = pl.custom_sales_order
+                AND soi.item_code = pli.item
+            WHERE pl.docstatus = 1
+                AND MONTH(pl.custom_date) = %(month)s
+                AND YEAR(pl.custom_date)  = %(year)s
+                AND pl.owner IS NOT NULL
+                AND pl.owner NOT IN ('', 'Select')
+                AND pl.custom_sales_order IS NOT NULL
+                AND pl.custom_sales_order != ''
+            GROUP BY pl.name, pl.owner
+
+            UNION
+
+            SELECT
+                pl.name AS packing_list,
+                pl.custom_verifier_2 AS person,
+                SUM(COALESCE(pli.qty, 0) * COALESCE(soi.net_rate, 0)) AS amount
+            FROM `tabPacking List` pl
+            INNER JOIN `tabItems` pli
+                ON pli.parent = pl.name
+                AND pli.parenttype = 'Packing List'
+                AND pli.parentfield = 'table_ttya'
+            LEFT JOIN (
+                SELECT
+                    parent,
+                    item_code,
+                    CASE
+                        WHEN SUM(qty) != 0 THEN SUM(net_amount) / SUM(qty)
+                        ELSE MAX(net_rate)
+                    END AS net_rate
+                FROM `tabSales Order Item`
+                GROUP BY parent, item_code
+            ) soi
+                ON soi.parent = pl.custom_sales_order
+                AND soi.item_code = pli.item
+            WHERE pl.docstatus = 1
+                AND MONTH(pl.custom_date) = %(month)s
+                AND YEAR(pl.custom_date)  = %(year)s
+                AND pl.custom_verifier_2 IS NOT NULL
+                AND pl.custom_verifier_2 NOT IN ('', 'Select')
+                AND pl.custom_sales_order IS NOT NULL
+                AND pl.custom_sales_order != ''
+            GROUP BY pl.name, pl.custom_verifier_2
+        ) verified_lists
+        GROUP BY person
+    """, params, as_dict=True)
+
+    verified_so_amount_by_person = {}
+    for r in verified_so_amount_raw:
+        person = resolve_name(r["person"], user_name_map)
+        verified_so_amount_by_person[person] = verified_so_amount_by_person.get(person, 0) + (r["amount"] or 0)
+
     ## BILLING: Version table — who changed workflow state from Packed to Billing
     billing_rows_raw = frappe.db.sql("""
         SELECT
@@ -304,6 +421,26 @@ def get_data(month, year, num_days):
                       "activity": "Dispatch", "day_num": r["day_num"], "qty": r["qty"]}
                      for r in dispatch_rows_raw]
 
+    ## DISPATCHED SALES ORDER AMOUNT: net value of each Sales Order moved to
+    ## Dispatched, attributed to the user who performed the transition.
+    dispatched_so_amount_raw = frappe.db.sql("""
+        SELECT
+            v.owner AS person,
+            SUM(COALESCE(so.net_total, 0)) AS amount
+        FROM `tabVersion` v
+        INNER JOIN `tabSales Order` so ON so.name = v.docname
+        WHERE v.ref_doctype = 'Sales Order'
+            AND MONTH(v.creation) = %(month)s
+            AND YEAR(v.creation)  = %(year)s
+            AND v.data LIKE '%%"workflow_state"%%In Transit%%Dispatched%%'
+        GROUP BY v.owner
+    """, params, as_dict=True)
+
+    dispatched_so_amount_by_person = {}
+    for r in dispatched_so_amount_raw:
+        person = resolve_name(r["person"], user_name_map)
+        dispatched_so_amount_by_person[person] = dispatched_so_amount_by_person.get(person, 0) + (r["amount"] or 0)
+
     all_rows = packing_rows + picking_rows + verifier_rows + billing_rows + dispatch_rows
 
     persons        = sorted(allowed_persons)
@@ -328,6 +465,12 @@ def get_data(month, year, num_days):
 
     working_days = num_days
     data         = []
+    activity_amounts = {
+        "Packing": packed_so_amount_by_person,
+        "Picking": picked_so_amount_by_person,
+        "Verify": verified_so_amount_by_person,
+        "Dispatch": dispatched_so_amount_by_person,
+    }
 
     ## Group pivot keys by person sorted by activity order
     persons_keys = {}
@@ -358,7 +501,10 @@ def get_data(month, year, num_days):
             row["total_packing"]    = total if activity == "Packing"  else None
             row["total_picking"]    = total if activity == "Picking"  else None
             row["total_qty_picked"] = int(picked_qty_by_person.get(person, 0)) if activity == "Picking" else None
-            row["total_so_amount"]  = int(round(picked_so_amount_by_person.get(person, 0))) if activity == "Picking" else None
+            amount_map = activity_amounts.get(activity)
+            row["total_so_amount"] = (
+                int(round(amount_map.get(person, 0))) if amount_map is not None else None
+            )
             row["total_verified"]   = total if activity == "Verify"   else None
             row["total_billing"]    = total if activity == "Billing"  else None
             row["total_dispatched"] = total if activity == "Dispatch" else None
