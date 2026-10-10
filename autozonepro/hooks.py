@@ -210,6 +210,7 @@ fixtures = [
 
 override_doctype_class = {
     "Customer": "autozonepro.autozonepro.overrides.customer.CustomCustomer",
+    "Report": "autozonepro.autozonepro.overrides.report.SynchronousReport",
 }
 
 # Scheduled Tasks
