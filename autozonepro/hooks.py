@@ -175,7 +175,8 @@ doc_events = {
         "on_submit": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.on_submit"
     },
     "Pick List": {
-        "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit"
+        "validate": "autozonepro.autozonepro.custom_scripts.pick_list_free_items.remove_orphaned_free_items",
+        "before_submit": "autozonepro.autozonepro.custom_scripts.pick_list.before_submit",
     },
     "Payment Entry": {
         "before_insert": "autozonepro.autozonepro.custom_scripts.payment_entry_hooks.validate",
@@ -199,6 +200,13 @@ doc_events = {
         "on_cancel": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.allow_gate_pass_link_on_cancel",
     },
 }
+
+fixtures = [
+    {
+        "doctype": "Client Script",
+        "filters": [["name", "=", "Pick List Freebie Synchronization"]],
+    }
+]
 
 override_doctype_class = {
     "Customer": "autozonepro.autozonepro.overrides.customer.CustomCustomer",

@@ -1,0 +1,13 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Pick List",
+  "enabled": 1,
+  "modified": "2026-10-10 10:15:03.585910",
+  "module": "Autozonepro",
+  "name": "Pick List Freebie Synchronization",
+  "script": "frappe.require(\"/assets/autozonepro/js/pick_list_free_items.js\");",
+  "view": "Form"
+ }
+]
