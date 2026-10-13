@@ -4,22 +4,18 @@ from frappe.utils import cstr
 from frappe.utils.data import get_link_to_form
 
 
-restricted_reference_modes = {"bank", "mobile money"}
-
-
 def validate(doc, method=None):
-	validate_unique_reference_no_for_restricted_modes(doc)
+	validate_unique_reference_no(doc)
 
 
 def get_reference_digits(reference_no):
 	return "".join(character for character in cstr(reference_no) if character.isascii() and character.isdigit())
 
 
-def validate_unique_reference_no_for_restricted_modes(doc):
-	mode_of_payment = cstr(doc.get("mode_of_payment")).strip().lower()
+def validate_unique_reference_no(doc):
 	reference_no = cstr(doc.get("reference_no")).strip()
 
-	if mode_of_payment not in restricted_reference_modes or not reference_no:
+	if not reference_no:
 		return
 
 	doc.reference_no = reference_no
