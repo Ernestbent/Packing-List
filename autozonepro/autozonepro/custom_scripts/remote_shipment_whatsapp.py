@@ -27,7 +27,6 @@ DELIVERY_NOTE_EMAIL_RECIPIENTS = (
 )
 
 STATUS_FIELD = "custom_remote_shipment_whatsapp_status"
-MESSAGE_ID_FIELD = "custom_remote_shipment_whatsapp_message_id"
 EMAIL_STATUS_FIELD = "custom_remote_shipment_email_status"
 
 
@@ -47,22 +46,12 @@ def setup_custom_fields():
 			"no_copy": 1,
 		},
 		{
-			"fieldname": MESSAGE_ID_FIELD,
-			"label": "Remote Shipment WhatsApp Message ID",
-			"fieldtype": "Data",
-			"insert_after": STATUS_FIELD,
-			"hidden": 1,
-			"read_only": 1,
-			"allow_on_submit": 1,
-			"no_copy": 1,
-		},
-		{
 			"fieldname": EMAIL_STATUS_FIELD,
 			"label": "Remote Shipment Email Status",
 			"fieldtype": "Select",
 			"options": "Not Sent\nQueued\nSent\nFailed",
 			"default": "Not Sent",
-			"insert_after": MESSAGE_ID_FIELD,
+			"insert_after": STATUS_FIELD,
 			"hidden": 1,
 			"read_only": 1,
 			"allow_on_submit": 1,
@@ -143,9 +132,11 @@ def send_remote_shipment_notification(delivery_note_name):
 				frappe.throw(_("WhatsApp access token and phone number ID must be configured."))
 
 			api_version = _get_api_version(settings.get("app_version"))
-			message_ids = []
 			for recipient in DELIVERY_NOTE_RECIPIENTS:
 				phone = _normalize_ugandan_phone(recipient["phone"])
+				if _outgoing_message_exists(delivery_note.name, phone):
+					continue
+
 				media_id = _upload_document(
 					pdf_content,
 					file_doc.file_name,
@@ -164,7 +155,6 @@ def send_remote_shipment_notification(delivery_note_name):
 					phone_number_id=phone_number_id,
 					api_version=api_version,
 				)
-				message_ids.append(message_id)
 				_log_outgoing_message(
 					phone=phone,
 					recipient_name=recipient["name"],
@@ -174,16 +164,15 @@ def send_remote_shipment_notification(delivery_note_name):
 					media_id=media_id,
 					message_id=message_id,
 				)
+				# Persist each accepted recipient independently. If a later recipient
+				# fails, a retry skips the recipients already recorded as sent.
+				frappe.db.commit()
 
-			# Commit immediately after the external send so a later worker error cannot
-			# cause a duplicate message on retry.
 			frappe.db.set_value(
 				"Delivery Note",
 				delivery_note.name,
-				{
-					STATUS_FIELD: "Sent",
-					MESSAGE_ID_FIELD: ", ".join(message_ids),
-				},
+				STATUS_FIELD,
+				"Sent",
 				update_modified=False,
 			)
 			frappe.db.commit()
@@ -492,6 +481,23 @@ def _safe_api_error(result, status_code):
 	return message or _("HTTP status {0}").format(status_code)
 
 
+def _outgoing_message_exists(delivery_note_name, phone):
+	"""Return whether this recipient already has a sent row for the Delivery Note."""
+	if not frappe.db.exists("DocType", "Whatsapp Message"):
+		return False
+
+	return bool(
+		frappe.db.exists(
+			"Whatsapp Message",
+			{
+				"from_number": phone,
+				"message_type": "template",
+				"message": ["like", f"%Delivery Note: *{delivery_note_name}*%"],
+			},
+		)
+	)
+
+
 def _log_outgoing_message(
 	*, phone, recipient_name, sales_order, delivery_note, file_doc, media_id, message_id
 ):
@@ -501,6 +507,7 @@ def _log_outgoing_message(
 	message = (
 		f"Hello {recipient_name},\n\n"
 		f"Please find attached the Delivery Note for Sales Order *{sales_order}*.\n\n"
+		f"Delivery Note: *{delivery_note.name}*\n\n"
 		f"*Item:* {SPECIAL_ITEM_CODE}\n\n"
 		"Please click the button below to enter the driver and transport details."
 	)
