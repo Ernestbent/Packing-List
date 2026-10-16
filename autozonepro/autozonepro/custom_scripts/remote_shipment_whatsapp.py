@@ -4,13 +4,14 @@ import frappe
 import requests
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-from frappe.utils import escape_html, get_url, now_datetime
+from frappe.utils import escape_html, now_datetime
 from frappe.utils.synchronization import filelock
 
 
 SPECIAL_ITEM_CODE = "CE300176PR"
 TEMPLATE_NAME = "remote_shipment"
 TEMPLATE_LANGUAGE = "en"
+REMOTE_SHIPMENT_BASE_URL = "https://accounting.autozonepro.org"
 
 # Delivery Notes and their handover links go to the remote packing team.
 DELIVERY_NOTE_RECIPIENTS = (
@@ -215,8 +216,9 @@ def send_remote_shipment_email(delivery_note_name):
 			sales_order = _get_sales_order(delivery_note)
 			pdf_content = frappe.get_print("Delivery Note", delivery_note.name, as_pdf=True)
 			file_doc = _get_or_create_pdf_file(delivery_note, pdf_content)
-			handover_url = get_url(
-				f"/third-party-shipment/new?delivery_note={delivery_note.name}"
+			handover_url = (
+				f"{REMOTE_SHIPMENT_BASE_URL}/third-party-shipment/new"
+				f"?delivery_note={delivery_note.name}"
 			)
 
 			for recipient in DELIVERY_NOTE_EMAIL_RECIPIENTS:
