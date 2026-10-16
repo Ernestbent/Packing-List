@@ -133,6 +133,7 @@ def send_remote_shipment_notification(delivery_note_name):
 
 		try:
 			_validate_delivery_note(delivery_note)
+			sales_order = _get_sales_order(delivery_note)
 			pdf_content = frappe.get_print("Delivery Note", delivery_note.name, as_pdf=True)
 			file_doc = _get_or_create_pdf_file(delivery_note, pdf_content)
 			settings = frappe.get_single("Whatsapp Setting")
