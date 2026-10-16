@@ -5,10 +5,19 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from autozonepro.autozonepro.custom_scripts.exclusive_sales_order_item import (
+    is_exclusive_item_order,
+)
+
 def validate_gate_pass_before_transit(doc, method, workflow_action=None):
 
     ## Only enforce on Start Transit action
     if workflow_action != "Start Transit":
+        return
+
+    # Third-party tyre orders do not leave from an Autozone warehouse and do
+    # not require an Autozone gate pass.
+    if is_exclusive_item_order(doc):
         return
 
     ## Check gate pass field is filled

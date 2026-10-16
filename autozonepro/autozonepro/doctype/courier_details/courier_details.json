@@ -12,6 +12,9 @@
   "vehicle_no",
   "shipping_costs_section",
   "table_ncgt",
+  "bundle_costs_section",
+  "bundle_details",
+  "total_expense",
   "connections_tab"
  ],
  "fields": [
@@ -48,6 +51,25 @@
    "fieldname": "table_ncgt",
    "fieldtype": "Table",
    "options": "Box Summary Table"
+  },
+  {
+   "depends_on": "eval:doc.bundle_details && doc.bundle_details.length",
+   "fieldname": "bundle_costs_section",
+   "fieldtype": "Section Break",
+   "label": "Bundle Costs"
+  },
+  {
+   "fieldname": "bundle_details",
+   "fieldtype": "Table",
+   "label": "Bundle Details",
+   "options": "Bundle",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_expense",
+   "fieldtype": "Currency",
+   "label": "Total Expense",
+   "read_only": 1
   },
   {
    "fieldname": "connections_tab",

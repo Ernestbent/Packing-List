@@ -30,6 +30,8 @@ function refresh_autozone_order_buttons(frm) {
     const generation = frm._autozone_button_generation;
     const order_name = frm.doc.name;
     const state = frm.doc.workflow_state;
+    const is_third_party_tyre_order = (frm.doc.items || []).length === 1
+        && frm.doc.items[0].item_code === 'CE300176PR';
     const is_current = () => frm.doc.name === order_name && frm.doc.docstatus === 1
         && frm.doc.workflow_state === state && frm._autozone_button_generation === generation;
     const remove_button = label => {
@@ -177,6 +179,14 @@ function refresh_autozone_order_buttons(frm) {
             if (r.message && r.message.length > 0) {
                 frm.remove_custom_button('Delivery Note', 'Create');
                 frm.remove_custom_button('Delivery Note', 'Make');
+                return;
+            }
+
+            if (is_third_party_tyre_order && ['Approved', 'Billing'].includes(state)) {
+                remove_button('Delivery Note');
+                frm.add_custom_button(__('Delivery Note'), function() {
+                    create_third_party_tyre_delivery_note(frm);
+                }, __('Create'));
             }
         }
     });
@@ -201,5 +211,35 @@ function refresh_autozone_order_buttons(frm) {
                 frm.remove_custom_button('Sales Invoice', 'Make');
             }
         }
+    });
+}
+
+async function create_third_party_tyre_delivery_note(frm) {
+    if (frm.doc.workflow_state === 'Approved') {
+        frappe.dom.freeze(__('Moving Sales Order to Billing...'));
+        frm.selected_workflow_action = 'Start Billing';
+
+        try {
+            await frm.script_manager.trigger('before_workflow_action');
+            const updated_doc = await frappe.xcall('frappe.model.workflow.apply_workflow', {
+                doc: frm.doc,
+                action: 'Start Billing'
+            });
+            frappe.model.sync(updated_doc);
+            await frm.refresh();
+            await frm.script_manager.trigger('after_workflow_action');
+        } finally {
+            frm.selected_workflow_action = null;
+            frappe.dom.unfreeze();
+        }
+    }
+
+    if (frm.doc.workflow_state !== 'Billing') {
+        frappe.throw(__('This Sales Order must be in Billing before creating its Delivery Note.'));
+    }
+
+    frappe.model.open_mapped_doc({
+        method: 'erpnext.selling.doctype.sales_order.sales_order.make_delivery_note',
+        frm: frm
     });
 }

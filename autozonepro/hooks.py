@@ -51,6 +51,7 @@ doctype_js = {
         # "public/js/update_delivery_note.js",
         # "public/js/verify_packing_list.js",
         "public/js/get_courier_details.js",
+        "public/js/exclusive_sales_order_item.js",
         # "public/js/sales_order_zero_rate_workflow_check.js",
     ],
     "Packing List":[
@@ -71,7 +72,8 @@ doctype_js = {
 
 doctype_list_js = {
     "Sales Order" : [
-        "public/js/generate_gate_pass.js"
+        "public/js/generate_gate_pass.js",
+        "public/js/restrict_bulk_courier_details.js",
         ]
 }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -89,9 +91,11 @@ doctype_list_js = {
 # home_page = "login"
 
 # website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
+role_home_page = {
+	"Remote User": "third-party-shipment"
+}
+
+after_migrate = "autozonepro.autozonepro.setup.after_migrate"
 
 # Generators
 # ----------
@@ -167,6 +171,12 @@ doctype_list_js = {
 # Hook on document methods and events
 
 doc_events = {
+	"Delivery Note": {
+		"on_submit": [
+			"autozonepro.autozonepro.custom_scripts.remote_shipment_whatsapp.queue_remote_shipment_notification",
+			"autozonepro.autozonepro.custom_scripts.remote_shipment_whatsapp.queue_remote_shipment_email",
+		],
+	},
     "Sales Invoice": {
         "on_submit": "autozonepro.autozonepro.custom_scripts.sales_invoice_hooks.on_submit",
         "on_cancel": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.allow_gate_pass_link_on_cancel",
@@ -187,6 +197,7 @@ doc_events = {
     "Sales Order": {
         # "on_submit": "autozonepro.autozonepro.custom_scripts.restrict_zero_rates.on_submit",
         "validate": [
+            "autozonepro.autozonepro.custom_scripts.exclusive_sales_order_item.validate",
             "autozonepro.autozonepro.custom_scripts.sales_order_hooks.validate",
             "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
             "autozonepro.autozonepro.custom_scripts.sales_order_pick_list_stock.validate",
@@ -195,6 +206,7 @@ doc_events = {
             "autozonepro.autozonepro.custom_scripts.sales_order_pick_list_stock.before_update_after_submit",
             "autozonepro.autozonepro.custom_scripts.check_packing_lists.before_update_after_submit",
         ],
+        "on_update_after_submit": "autozonepro.autozonepro.custom_scripts.special_item_auto_fulfillment.on_update_after_submit",
         "before_submit": "autozonepro.autozonepro.custom_scripts.sales_order_item_limit.validate_sales_order_item_limits",
         "on_workflow_action": "autozonepro.autozonepro.custom_scripts.get_gate_pass_data.validate_gate_pass_before_transit",
         "on_cancel": "autozonepro.autozonepro.custom_scripts.gate_pass_hooks.allow_gate_pass_link_on_cancel",

@@ -1,0 +1,146 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:MARK-{delivery_note}",
+ "creation": "2026-10-15 14:49:12.773302",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_iixv",
+  "delivery_note",
+  "sales_order",
+  "customer",
+  "column_break_hpjs",
+  "date",
+  "time",
+  "courier_details_section",
+  "driver",
+  "tel_no",
+  "column_break_ejjw",
+  "vehicle_number",
+  "section_break_fukw",
+  "table_qwyw",
+  "totals_section",
+  "total_expense",
+  "courier_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_iixv",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "delivery_note",
+   "fieldtype": "Link",
+   "label": "Delivery Note",
+   "options": "Delivery Note",
+   "unique": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "column_break_hpjs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "delivery_note.customer",
+   "fieldname": "customer",
+   "fieldtype": "Data",
+   "label": "Customer"
+  },
+  {
+   "fieldname": "courier_details_section",
+   "fieldtype": "Section Break",
+   "label": "Courier Details"
+  },
+  {
+   "fieldname": "driver",
+   "fieldtype": "Data",
+   "label": "Driver "
+  },
+  {
+   "fieldname": "tel_no",
+   "fieldtype": "Data",
+   "label": "Tel No"
+  },
+  {
+   "fieldname": "column_break_ejjw",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vehicle_number",
+   "fieldtype": "Data",
+   "label": "Vehicle Number "
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date"
+  },
+  {
+   "fieldname": "time",
+   "fieldtype": "Time",
+   "label": "Time"
+  },
+  {
+   "fieldname": "section_break_fukw",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "table_qwyw",
+   "fieldtype": "Table",
+   "options": "Bundle"
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_expense",
+   "fieldtype": "Currency",
+   "label": "Total Expense",
+   "read_only": 1
+  },
+  {
+   "fieldname": "courier_details",
+   "fieldtype": "Link",
+   "label": "Courier Details",
+   "options": "Courier Details",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-10-15 14:59:50.889713",
+ "modified_by": "Administrator",
+ "module": "Autozonepro",
+ "name": "Third-Party Shipment",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

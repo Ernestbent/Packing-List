@@ -1,0 +1,92 @@
+.web-form-header .web-form-head .title {
+	align-items: center;
+}
+
+.web-form-header .web-form-title h1 {
+	font-size: 1.75rem;
+	line-height: 1.3;
+	white-space: normal;
+}
+
+.web-form-header .indicator-pill {
+	display: none !important;
+}
+
+.web-form-header .web-form-introduction {
+	margin-top: 0.75rem !important;
+}
+
+.shipment-bundles {
+	margin-top: 0.5rem;
+}
+
+.shipment-already-submitted {
+	margin: 1rem 0;
+	padding: 1.25rem;
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 0.5rem;
+	background: var(--fg-color, #fff);
+}
+
+.shipment-already-submitted h3 {
+	margin: 0 0 0.75rem;
+	font-size: 1.25rem;
+}
+
+.shipment-already-submitted p:last-child {
+	margin-bottom: 0;
+}
+
+.shipment-bundles .bundle-count,
+.shipment-bundles .bundle-unit-expense {
+	max-width: 14rem;
+}
+
+.shipment-bundles .bundle-rate-label {
+	display: block;
+	margin-top: 1rem;
+}
+
+.shipment-bundles .bundle-list {
+	margin-top: 1rem;
+}
+
+.shipment-bundles .bundle-row {
+	display: grid;
+	grid-template-columns: minmax(7rem, 1fr) minmax(0, 2fr);
+	gap: 1rem;
+	align-items: end;
+	padding: 0.75rem 0;
+	border-bottom: 1px solid var(--border-color, #d1d8dd);
+}
+
+.shipment-bundles .bundle-label {
+	padding-bottom: 0.5rem;
+	font-weight: 600;
+}
+
+.shipment-bundles .bundle-row label {
+	min-width: 0;
+	margin: 0;
+}
+
+.shipment-bundles .bundle-row label span {
+	display: block;
+	margin-bottom: 0.35rem;
+}
+
+@media (max-width: 480px) {
+	.web-form-header .web-form-title h1 {
+		font-size: 1.4rem;
+	}
+
+	.shipment-bundles .bundle-count,
+	.shipment-bundles .bundle-unit-expense {
+		max-width: none;
+	}
+
+	.shipment-bundles .bundle-row {
+		grid-template-columns: 1fr;
+		gap: 0.25rem;
+	}
+}
