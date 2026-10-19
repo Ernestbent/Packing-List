@@ -1,0 +1,27 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2026-10-18 00:00:00.000000",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": "",
+ "modified": "2026-10-18 20:15:00.000000",
+ "modified_by": "Administrator",
+ "module": "Autozonepro",
+ "name": "Mark Courier Details",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n    CONCAT(\n        '<a href=\"/dispatch-register/',\n        dr.name,\n        '\" target=\"_blank\">',\n        dr.name,\n        '</a>'\n    ) AS `Register Number:HTML:165`,\n    dr.date_time AS `Date:Date:105`,\n    dr.posting__time AS `Time:Time:90`,\n    drr.delivery_note AS `Delivery Note:Link/Delivery Note:175`,\n    drr.customer_name AS `Customer:Data:180`,\n    drr.driver_name AS `Driver Name:Data:150`,\n    drr.vehicle_number AS `Vehicle Number:Data:130`,\n    drr.telephone AS `Telephone:Data:135`,\n    drr.number_of_bundles AS `Bundles:Int:85`,\n    drr.total_expense AS `Total Expense:Currency:125`,\n    drr.row_status AS `Status:Data:100`,\n    dr.submitted_by AS `Submitted By:Link/User:180`\nFROM `tabDispatch Register` dr\nINNER JOIN `tabDispatch Register Row` drr\n    ON drr.parent = dr.name\n    AND drr.parenttype = 'Dispatch Register'\n    AND drr.parentfield = 'rows'\nWHERE dr.docstatus = 1\n    AND dr.date_time BETWEEN %(from_date)s AND %(to_date)s\nORDER BY dr.date_time DESC, dr.posting__time DESC, dr.name DESC, drr.idx ASC",
+ "ref_doctype": "Dispatch Register",
+ "report_name": "Mark Courier Details",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ]
+}

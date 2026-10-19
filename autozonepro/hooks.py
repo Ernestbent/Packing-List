@@ -203,6 +203,7 @@ doc_events = {
             "autozonepro.autozonepro.custom_scripts.sales_order_pick_list_stock.validate",
         ],
         "before_update_after_submit": [
+            "autozonepro.autozonepro.custom_scripts.protect_special_dispatch.validate",
             "autozonepro.autozonepro.custom_scripts.sales_order_pick_list_stock.before_update_after_submit",
             "autozonepro.autozonepro.custom_scripts.check_packing_lists.before_update_after_submit",
         ],

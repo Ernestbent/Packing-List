@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "autoname": "format:DR-{YYYY}-{#####}",
+ "creation": "2026-10-17 12:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "date_time",
+  "posting__time",
+  "third_party",
+  "submitted_by",
+  "rows",
+  "totals_section",
+  "total_bundles",
+  "total_expense",
+  "status",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "date_time",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date"
+  },
+  {
+   "fieldname": "third_party",
+   "fieldtype": "Link",
+   "label": "Third Party",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submitted_by",
+   "fieldtype": "Link",
+   "label": "Submitted By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rows",
+   "fieldtype": "Table",
+   "label": "Delivery Notes",
+   "options": "Dispatch Register Row",
+   "reqd": 1
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_bundles",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Bundles",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_expense",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Expense",
+   "options": "UGX",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nPartially Failed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Dispatch Register",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "posting__time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Posting  Time"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-10-19 05:27:13.508855",
+ "modified_by": "ernestben69@gmail.com",
+ "module": "Autozonepro",
+ "name": "Dispatch Register",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Remote User",
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "date_time",
+ "sort_order": "DESC",
+ "states": []
+}

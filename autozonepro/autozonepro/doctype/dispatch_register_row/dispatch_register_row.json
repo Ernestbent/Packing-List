@@ -1,0 +1,131 @@
+{
+ "actions": [],
+ "creation": "2026-10-17 12:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "delivery_note",
+  "customer_name",
+  "sales_order",
+  "driver_name",
+  "vehicle_number",
+  "telephone",
+  "number_of_bundles",
+  "total_expense",
+  "cost_per_bundle",
+  "row_status",
+  "third_party_shipment"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "delivery_note",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Delivery Note Number",
+   "options": "Delivery Note",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "delivery_note.customer_name",
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "driver_name",
+   "fieldtype": "Autocomplete",
+   "in_list_view": 1,
+   "label": "Driver Name",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "vehicle_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vehicle Number",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "telephone",
+   "fieldtype": "Autocomplete",
+   "in_list_view": 1,
+   "label": "Telephone Number",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "number_of_bundles",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Number of Bundles",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "total_expense",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Expense of That Order",
+   "options": "UGX",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "cost_per_bundle",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Cost Per Bundle",
+   "options": "UGX",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "Pending",
+   "fieldname": "row_status",
+   "fieldtype": "Select",
+   "label": "Row Status",
+   "options": "Pending\nDispatched\nFailed",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "third_party_shipment",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Third-Party Shipment",
+   "options": "Third-Party Shipment",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-19 05:35:41.892086",
+ "modified_by": "ernestben69@gmail.com",
+ "module": "Autozonepro",
+ "name": "Dispatch Register Row",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,49 @@
+body[data-path^="dispatch-register"] .dispatch-register-list-filters {
+	display: flex;
+	align-items: flex-end;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 18px;
+	padding: 16px;
+	background: #f8fafc;
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+}
+
+body[data-path^="dispatch-register"] .dispatch-filter-field {
+	flex: 1 1 220px;
+	min-width: 180px;
+}
+
+body[data-path^="dispatch-register"] .dispatch-filter-field label {
+	display: block;
+	margin-bottom: 6px;
+	font-size: 14px;
+	font-weight: 500;
+}
+
+body[data-path^="dispatch-register"] .dispatch-filter-field .form-control {
+	width: 100%;
+	height: 38px;
+}
+
+body[data-path^="dispatch-register"] .dispatch-filter-actions {
+	display: flex;
+	align-items: center;
+	height: 38px;
+}
+
+@media (max-width: 767px) {
+	body[data-path^="dispatch-register"] .dispatch-register-list-filters {
+		display: grid;
+		grid-template-columns: 1fr;
+		padding: 12px;
+	}
+
+	body[data-path^="dispatch-register"] .dispatch-filter-field,
+	body[data-path^="dispatch-register"] .dispatch-filter-actions,
+	body[data-path^="dispatch-register"] .dispatch-clear-filters {
+		width: 100%;
+		min-width: 0;
+	}
+}

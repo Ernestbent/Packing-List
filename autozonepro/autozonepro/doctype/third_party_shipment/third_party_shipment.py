@@ -14,7 +14,12 @@ from autozonepro.autozonepro.custom_scripts.exclusive_sales_order_item import (
 
 
 COURIER_DETAILS_ACTION = "Enter Courier Details"
+DISPATCH_ACTION = "Dispatch"
 DISPATCHED_STATE = "Dispatched"
+DISPATCH_ACTION_BY_STATE = {
+	"In Transit": COURIER_DETAILS_ACTION,
+	"Being Delivered": DISPATCH_ACTION,
+}
 
 
 class ThirdPartyShipment(Document):
@@ -158,10 +163,10 @@ class ThirdPartyShipment(Document):
 		if sales_order.workflow_state == DISPATCHED_STATE:
 			return
 
-		if sales_order.workflow_state != "In Transit":
+		if sales_order.workflow_state not in DISPATCH_ACTION_BY_STATE:
 			frappe.throw(
 				_(
-					"Sales Order {0} must be In Transit before courier details can dispatch it. "
+					"Sales Order {0} must be In Transit or Being Delivered before courier details can dispatch it. "
 					"Its current state is {1}."
 				).format(
 					frappe.bold(sales_order.name),
@@ -181,29 +186,52 @@ class ThirdPartyShipment(Document):
 			order_by="creation desc",
 		)
 		original_user = frappe.session.user
+		was_validated_dispatch = getattr(
+			frappe.flags, "in_validated_courier_dispatch", False
+		)
 		try:
 			# Remote Users cannot operate Desk workflow actions. This narrowly scoped
 			# system transition runs only after server-side shipment validation. Frappe's
 			# audit_user records the website user who initiated the elevated action.
+			frappe.flags.in_validated_courier_dispatch = True
 			frappe.set_user("Administrator")
 			frappe.session.data.audit_user = f"{actor_name} ({actor_user})"
 			sales_order.reload()
-			available_actions = {
-				transition.get("action") for transition in get_transitions(sales_order)
-			}
-			if COURIER_DETAILS_ACTION not in available_actions:
-				frappe.throw(
-					_(
-						"Workflow action {0} is not available for Sales Order {1} in state {2}."
-					).format(
-						frappe.bold(COURIER_DETAILS_ACTION),
-						frappe.bold(sales_order.name),
-						frappe.bold(sales_order.workflow_state),
-					),
-					title=_("Workflow Transition Unavailable"),
-				)
+			while sales_order.workflow_state != DISPATCHED_STATE:
+				current_state = sales_order.workflow_state
+				action = DISPATCH_ACTION_BY_STATE.get(current_state)
+				if not action:
+					frappe.throw(
+						_("Sales Order {0} cannot be dispatched from state {1}.").format(
+							frappe.bold(sales_order.name),
+							frappe.bold(current_state or _("Not Set")),
+						),
+						title=_("Workflow Transition Unavailable"),
+					)
 
-			sales_order = apply_workflow(sales_order, COURIER_DETAILS_ACTION)
+				available_actions = {
+					transition.get("action") for transition in get_transitions(sales_order)
+				}
+				if action not in available_actions:
+					frappe.throw(
+						_(
+							"Workflow action {0} is not available for Sales Order {1} in state {2}."
+						).format(
+							frappe.bold(action),
+							frappe.bold(sales_order.name),
+							frappe.bold(current_state),
+						),
+						title=_("Workflow Transition Unavailable"),
+					)
+
+				sales_order = apply_workflow(sales_order, action)
+				if sales_order.workflow_state == current_state:
+					frappe.throw(
+						_("Workflow action {0} did not change Sales Order {1}.").format(
+							frappe.bold(action), frappe.bold(sales_order.name)
+						)
+					)
+
 			if sales_order.workflow_state != DISPATCHED_STATE:
 				frappe.throw(
 					_("Sales Order {0} did not reach Dispatched.").format(
@@ -212,6 +240,7 @@ class ThirdPartyShipment(Document):
 				)
 		finally:
 			frappe.set_user(original_user)
+			frappe.flags.in_validated_courier_dispatch = was_validated_dispatch
 
 		workflow_comment = frappe.db.get_value(
 			"Comment",

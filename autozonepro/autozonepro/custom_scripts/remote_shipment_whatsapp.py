@@ -13,7 +13,7 @@ TEMPLATE_NAME = "remote_shipment"
 TEMPLATE_LANGUAGE = "en"
 REMOTE_SHIPMENT_BASE_URL = "https://accounting.autozonepro.org"
 
-# Delivery Notes and their handover links go to the remote packing team.
+# Delivery Note PDFs go to the remote packing team through the approved template.
 DELIVERY_NOTE_RECIPIENTS = (
 	{"name": "Mark", "phone": "0757001909"},
 	{"name": "Bridget", "phone": "+256 708 390020"},
@@ -134,7 +134,9 @@ def send_remote_shipment_notification(delivery_note_name):
 			api_version = _get_api_version(settings.get("app_version"))
 			for recipient in DELIVERY_NOTE_RECIPIENTS:
 				phone = _normalize_ugandan_phone(recipient["phone"])
-				if _outgoing_message_exists(delivery_note.name, phone):
+				if _outgoing_message_exists(
+					delivery_note.name, phone, file_doc.file_url
+				):
 					continue
 
 				media_id = _upload_document(
@@ -148,7 +150,6 @@ def send_remote_shipment_notification(delivery_note_name):
 					phone=phone,
 					recipient_name=recipient["name"],
 					sales_order=sales_order,
-					delivery_note=delivery_note.name,
 					media_id=media_id,
 					file_name=file_doc.file_name,
 					access_token=access_token,
@@ -394,7 +395,6 @@ def _send_template(
 	phone,
 	recipient_name,
 	sales_order,
-	delivery_note,
 	media_id,
 	file_name,
 	access_token,
@@ -405,7 +405,6 @@ def _send_template(
 		phone=phone,
 		recipient_name=recipient_name,
 		sales_order=sales_order,
-		delivery_note=delivery_note,
 		media_id=media_id,
 		file_name=file_name,
 	)
@@ -429,9 +428,7 @@ def _send_template(
 	return messages[0]["id"]
 
 
-def build_template_payload(
-	*, phone, recipient_name, sales_order, delivery_note, media_id, file_name
-):
+def build_template_payload(*, phone, recipient_name, sales_order, media_id, file_name):
 	"""Build the positional template payload. Kept separate for safe testing."""
 	return {
 		"messaging_product": "whatsapp",
@@ -457,12 +454,6 @@ def build_template_payload(
 						{"type": "text", "text": sales_order},
 					],
 				},
-				{
-					"type": "button",
-					"sub_type": "url",
-					"index": "0",
-					"parameters": [{"type": "text", "text": delivery_note}],
-				},
 			],
 		},
 	}
@@ -481,21 +472,24 @@ def _safe_api_error(result, status_code):
 	return message or _("HTTP status {0}").format(status_code)
 
 
-def _outgoing_message_exists(delivery_note_name, phone):
+def _outgoing_message_exists(delivery_note_name, phone, file_url):
 	"""Return whether this recipient already has a sent row for the Delivery Note."""
 	if not frappe.db.exists("DocType", "Whatsapp Message"):
 		return False
 
-	return bool(
-		frappe.db.exists(
-			"Whatsapp Message",
-			{
-				"from_number": phone,
-				"message_type": "template",
-				"message": ["like", f"%Delivery Note: *{delivery_note_name}*%"],
-			},
-		)
-	)
+	filters = {
+		"from_number": phone,
+		"message_type": "template",
+	}
+	if frappe.get_meta("Whatsapp Message").has_field("custom_template_header_file"):
+		filters["custom_template_header_file"] = file_url
+		if frappe.db.exists("Whatsapp Message", filters):
+			return True
+
+	# Compatibility with messages logged before the template button was removed.
+	filters["message"] = ["like", f"%Delivery Note: *{delivery_note_name}*%"]
+	filters.pop("custom_template_header_file", None)
+	return bool(frappe.db.exists("Whatsapp Message", filters))
 
 
 def _log_outgoing_message(
@@ -507,9 +501,8 @@ def _log_outgoing_message(
 	message = (
 		f"Hello {recipient_name},\n\n"
 		f"Please find attached the Delivery Note for Sales Order *{sales_order}*.\n\n"
-		f"Delivery Note: *{delivery_note.name}*\n\n"
 		f"*Item:* {SPECIAL_ITEM_CODE}\n\n"
-		"Please click the button below to enter the driver and transport details."
+		"Please enter driver and transport details once the package is handed over."
 	)
 	values = {
 		"doctype": "Whatsapp Message",

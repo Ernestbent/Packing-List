@@ -2,6 +2,21 @@ frappe.ui.form.on("Sales Order", {
     before_workflow_action: function (frm) {
         console.log("Workflow action triggered:", frm.selected_workflow_action);
 
+		const is_protected_courier_order =
+			(frm.doc.items || []).length === 1 &&
+			frm.doc.items[0].item_code === "CE300176PR";
+		if (
+			is_protected_courier_order &&
+			["Enter Courier Details", "Dispatch"].includes(frm.selected_workflow_action)
+		) {
+			frappe.throw({
+				title: __("Use Dispatch Register"),
+				message: __(
+					"This courier order cannot be dispatched directly from the Sales Order. Submit its courier details through the Dispatch Register."
+				),
+			});
+		}
+
         if (frm.selected_workflow_action === "Enter Courier Details") {
             return new Promise((resolve, reject) => {
                 frappe.dom.unfreeze();
