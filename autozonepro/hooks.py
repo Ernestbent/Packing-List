@@ -91,9 +91,9 @@ doctype_list_js = {
 # home_page = "login"
 
 # website user home page (by Role)
-role_home_page = {
-	"Remote User": "third-party-shipment"
-}
+# role_home_page = {
+# 	"Remote User": "third-party-shipment"
+# }
 
 after_migrate = "autozonepro.autozonepro.setup.after_migrate"
 
