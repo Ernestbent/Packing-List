@@ -1,4 +1,19 @@
 frappe.ready(function() {
+	// Frappe can expose the translation context in the child-table row-number
+	// heading on Web Forms. Keep the system-generated heading as simply "No.".
+	frappe._messages["No.:Title of the 'row number' column"] = "No.";
+
+	function fix_row_number_heading() {
+		$(".grid-heading-row .row-index span").each(function() {
+			if ($(this).text().includes("Title of the 'row number' column")) {
+				$(this).text("No.");
+			}
+		});
+	}
+
+	fix_row_number_heading();
+	window.setTimeout(fix_row_number_heading, 500);
+
 	const delivery_note_input =
 		'.grid-body [data-fieldname="delivery_note"] input[data-fieldtype="Link"], ' +
 		'.grid-body [data-fieldname="delivery_note"] input';
