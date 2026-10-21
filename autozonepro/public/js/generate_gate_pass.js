@@ -256,7 +256,7 @@ function preload_selected_sales_orders(listview, dialog, gate_pass_items) {
                 "total_boxes",
                 "total_qty"
             ],
-            limit_page_length: selected_orders.length
+            limit_page_length: 500
         },
         callback: function(r) {
             const packing_lists = r.message || [];
