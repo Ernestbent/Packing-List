@@ -36,7 +36,6 @@ def validate_filters(filters):
 
 def get_columns():
 	return [
-		{"label": _("#"), "fieldname": "idx", "fieldtype": "Int", "width": 50},
 		{"label": _("Status"), "fieldname": "status", "fieldtype": "Data", "width": 220},
 		{"label": _("Amount"), "fieldname": "amount", "fieldtype": "Currency", "width": 160},
 		{
@@ -164,7 +163,7 @@ def get_version_changes(version_data):
 def build_rows(totals_by_state, daily_billed, daily_dispatched, closing_date):
 	period_remark = closing_date.strftime("%d %b")
 	rows = []
-	for idx, (report_key, label) in enumerate(WORKFLOW_STATES, start=1):
+	for report_key, label in WORKFLOW_STATES:
 		state_total = totals_by_state.get(report_key) or frappe._dict()
 		amount = flt(state_total.get("order_amount"))
 		order_count = state_total.get("order_count") or 0
@@ -176,7 +175,6 @@ def build_rows(totals_by_state, daily_billed, daily_dispatched, closing_date):
 			order_count = daily_dispatched.order_count
 		rows.append(
 			{
-				"idx": idx,
 				"status": label,
 				"amount": amount,
 				"order_count": order_count,
