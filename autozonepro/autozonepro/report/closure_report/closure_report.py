@@ -14,7 +14,7 @@ WORKFLOW_STATES = [
 	("Picking", "Picking"),
 	("Packing", "Packing"),
 	("daily_billed", "Billed"),
-	("Billed", "Pending for Dispatch"),
+	("In Transit", "In Transit"),
 	("daily_dispatched", "Dispatched"),
 ]
 
@@ -64,7 +64,7 @@ def get_data(filters):
 				AND IFNULL(status, '') NOT IN ('Hold', 'On Hold', 'Closed')
 				AND workflow_state IN (
 					'Pending Credit Approval', 'Approved', 'Picking',
-					'Packing', 'Billed'
+					'Packing', 'In Transit'
 				)
 			GROUP BY workflow_state
 		""",
@@ -72,34 +72,6 @@ def get_data(filters):
 		as_dict=True,
 	)
 	totals_by_state = {row.workflow_state: row for row in state_totals}
-
-	## Pending for Dispatch is the current Billed queue. Its amount comes from the
-	## submitted invoices linked to those Billed Sales Orders.
-	pending_dispatch_invoice_rows = frappe.db.sql(
-		"""
-			SELECT
-				DISTINCT si.name AS sales_invoice,
-				si.base_grand_total,
-				links.sales_order
-			FROM (
-				SELECT DISTINCT sales_order, parent AS sales_invoice
-				FROM `tabSales Invoice Item`
-				WHERE docstatus = 1 AND IFNULL(sales_order, '') != ''
-			) links
-			INNER JOIN `tabSales Invoice` si
-				ON si.name = links.sales_invoice AND si.docstatus = 1
-			INNER JOIN `tabSales Order` so ON so.name = links.sales_order
-			WHERE so.company = %(company)s
-				AND so.docstatus < 2
-				AND IFNULL(so.status, '') NOT IN ('Hold', 'On Hold', 'Closed')
-				AND so.workflow_state = 'Billed'
-		""",
-		{"company": filters.company},
-		as_dict=True,
-	)
-	pending_dispatch_amount = sum(
-		{row.sales_invoice: flt(row.base_grand_total) for row in pending_dispatch_invoice_rows}.values()
-	)
 
 	## Billed is daily throughput. Include every submitted Sales Invoice posted on
 	## the selected date when it links to at least one Sales Order, regardless
@@ -176,7 +148,6 @@ def get_data(filters):
 		totals_by_state,
 		daily_billed,
 		daily_dispatched,
-		pending_dispatch_amount,
 		filters.closing_date,
 	)
 
@@ -190,7 +161,7 @@ def get_version_changes(version_data):
 	return [change[:3] for change in (data.get("changed") or []) if len(change) >= 3]
 
 
-def build_rows(totals_by_state, daily_billed, daily_dispatched, pending_dispatch_amount, closing_date):
+def build_rows(totals_by_state, daily_billed, daily_dispatched, closing_date):
 	period_remark = closing_date.strftime("%d %b")
 	rows = []
 	for idx, (report_key, label) in enumerate(WORKFLOW_STATES, start=1):
@@ -203,8 +174,6 @@ def build_rows(totals_by_state, daily_billed, daily_dispatched, pending_dispatch
 		elif report_key == "daily_dispatched":
 			amount = daily_dispatched.amount
 			order_count = daily_dispatched.order_count
-		elif report_key == "Billed":
-			amount = pending_dispatch_amount
 		rows.append(
 			{
 				"idx": idx,

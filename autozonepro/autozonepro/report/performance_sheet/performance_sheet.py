@@ -17,6 +17,9 @@ PERSON_EMAILS = {
 
 JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
 JULY_2026_ONWARD_EXCLUDED_PERSONS = {"Osbert", "Peter"}
+OCTOBER_2026_ONWARD_EXCLUDED_PERSONS = {
+    "Jovan", "George", "Charles", "Swabura", "Swaburah"
+}
 MAY_ONWARD_PERSONS = {"George", "Osbert"}
 
 ## Name overrides — genuine typos or full name mappings that title() alone cannot fix
@@ -53,7 +56,8 @@ def get_columns(num_days):
             "width":     38
         })
 
-    ## Summary columns — counts are SO/action counts; picked qty is item quantity.
+    ## Summary columns — counts are SO/action counts; picked, packed, and
+    ## verified quantities are item quantities attributed to each activity.
     columns.append({"label": _("Total"),             "fieldname": "total",             "fieldtype": "Int",   "width": 65})
     columns.append({"label": _("Daily Avg"),         "fieldname": "daily_avg",         "fieldtype": "Float", "width": 75,  "precision": 1})
     columns.append({"label": _("Total of All 4"),    "fieldname": "total_all_4",       "fieldtype": "Int",   "width": 100})
@@ -63,7 +67,9 @@ def get_columns(num_days):
     columns.append({"label": _("Total Verified"),    "fieldname": "total_verified",    "fieldtype": "Int",   "width": 100})
     columns.append({"label": _("Total Billing"),     "fieldname": "total_billing",     "fieldtype": "Int",   "width": 100})
     columns.append({"label": _("Total Dispatched"),  "fieldname": "total_dispatched",  "fieldtype": "Int",   "width": 110})
-    columns.append({"label": _("Total Qty Picked"),  "fieldname": "total_qty_picked",  "fieldtype": "Int", "width": 120})
+    columns.append({"label": _("Total Qty Picked"),   "fieldname": "total_qty_picked",   "fieldtype": "Int", "width": 120})
+    columns.append({"label": _("Total Qty Packed"),   "fieldname": "total_qty_packed",   "fieldtype": "Int", "width": 120})
+    columns.append({"label": _("Total Qty Verified"), "fieldname": "total_qty_verified", "fieldtype": "Int", "width": 130})
     columns.append({"label": _("Total Amount"),      "fieldname": "total_so_amount",   "fieldtype": "Currency", "width": 130, "precision": 0})
 
     return columns
@@ -104,6 +110,8 @@ def get_allowed_persons(month, year):
         persons -= JUNE_ONWARD_EXCLUDED_PERSONS
     if (year, month) >= (2026, 7):
         persons -= JULY_2026_ONWARD_EXCLUDED_PERSONS
+    if (year, month) >= (2026, 10):
+        persons -= OCTOBER_2026_ONWARD_EXCLUDED_PERSONS
     return persons
 
 
@@ -178,6 +186,33 @@ def get_data(month, year, num_days):
     for r in picked_qty_raw:
         person = resolve_name(r["person"], user_name_map)
         picked_qty_by_person[person] = picked_qty_by_person.get(person, 0) + (r["qty"] or 0)
+
+    ## PACKED QUANTITY: sum item quantities per packer. This is calculated
+    ## independently from picked quantity because the picker and packer can be
+    ## different people and can handle different Packing Lists.
+    packed_qty_raw = frappe.db.sql("""
+        SELECT
+            pl.custom_packer AS person,
+            SUM(COALESCE(pli.qty, 0)) AS qty
+        FROM `tabPacking List` pl
+        INNER JOIN `tabItems` pli
+            ON pli.parent = pl.name
+            AND pli.parenttype = 'Packing List'
+            AND pli.parentfield = 'table_ttya'
+        WHERE pl.docstatus = 1
+            AND MONTH(pl.custom_date) = %(month)s
+            AND YEAR(pl.custom_date)  = %(year)s
+            AND pl.custom_packer IS NOT NULL
+            AND pl.custom_packer NOT IN ('', 'Select')
+            AND pl.custom_sales_order IS NOT NULL
+            AND pl.custom_sales_order != ''
+        GROUP BY pl.custom_packer
+    """, params, as_dict=True)
+
+    packed_qty_by_person = {}
+    for r in packed_qty_raw:
+        person = resolve_name(r["person"], user_name_map)
+        packed_qty_by_person[person] = packed_qty_by_person.get(person, 0) + (r["qty"] or 0)
 
     ## PICKED SALES ORDER AMOUNT: picked item qty x Sales Order Item net rate.
     ## This avoids counting SO lines that were not actually picked.
@@ -306,6 +341,63 @@ def get_data(month, year, num_days):
 
     verifier_rows = [{"person": name, "activity": "Verify", "day_num": day_num, "qty": qty}
                      for (name, day_num), qty in verify_map.items()]
+
+    ## VERIFIED QUANTITY: sum the Packing List item quantities attributed to
+    ## each verifier. Raw rows are deduplicated after name resolution so the
+    ## same person is not credited twice when stored once as an email and once
+    ## as a name on the same Packing List.
+    verified_qty_raw = frappe.db.sql("""
+        SELECT packing_list, person, qty
+        FROM (
+            SELECT
+                pl.name AS packing_list,
+                pl.owner AS person,
+                SUM(COALESCE(pli.qty, 0)) AS qty
+            FROM `tabPacking List` pl
+            INNER JOIN `tabItems` pli
+                ON pli.parent = pl.name
+                AND pli.parenttype = 'Packing List'
+                AND pli.parentfield = 'table_ttya'
+            WHERE pl.docstatus = 1
+                AND MONTH(pl.custom_date) = %(month)s
+                AND YEAR(pl.custom_date)  = %(year)s
+                AND pl.owner IS NOT NULL
+                AND pl.owner NOT IN ('', 'Select')
+                AND pl.custom_sales_order IS NOT NULL
+                AND pl.custom_sales_order != ''
+            GROUP BY pl.name, pl.owner
+
+            UNION ALL
+
+            SELECT
+                pl.name AS packing_list,
+                pl.custom_verifier_2 AS person,
+                SUM(COALESCE(pli.qty, 0)) AS qty
+            FROM `tabPacking List` pl
+            INNER JOIN `tabItems` pli
+                ON pli.parent = pl.name
+                AND pli.parenttype = 'Packing List'
+                AND pli.parentfield = 'table_ttya'
+            WHERE pl.docstatus = 1
+                AND MONTH(pl.custom_date) = %(month)s
+                AND YEAR(pl.custom_date)  = %(year)s
+                AND pl.custom_verifier_2 IS NOT NULL
+                AND pl.custom_verifier_2 NOT IN ('', 'Select')
+                AND pl.custom_sales_order IS NOT NULL
+                AND pl.custom_sales_order != ''
+            GROUP BY pl.name, pl.custom_verifier_2
+        ) verified_lists
+    """, params, as_dict=True)
+
+    verified_qty_by_person = {}
+    seen_verified_lists = set()
+    for r in verified_qty_raw:
+        person = resolve_name(r["person"], user_name_map)
+        dedup_key = (person, r["packing_list"])
+        if dedup_key in seen_verified_lists:
+            continue
+        seen_verified_lists.add(dedup_key)
+        verified_qty_by_person[person] = verified_qty_by_person.get(person, 0) + (r["qty"] or 0)
 
     ## VERIFIED SALES ORDER AMOUNT: value of the Packing List items handled by
     ## each verifier. UNION prevents double counting when verifier 1 and 2 are
@@ -522,6 +614,8 @@ def get_data(month, year, num_days):
             row["total_packing"]    = total if activity == "Packing"  else None
             row["total_picking"]    = total if activity == "Picking"  else None
             row["total_qty_picked"] = int(picked_qty_by_person.get(person, 0)) if activity == "Picking" else None
+            row["total_qty_packed"] = int(packed_qty_by_person.get(person, 0)) if activity == "Packing" else None
+            row["total_qty_verified"] = int(verified_qty_by_person.get(person, 0)) if activity == "Verify" else None
             amount_map = activity_amounts.get(activity)
             row["total_so_amount"] = (
                 int(round(amount_map.get(person, 0))) if amount_map is not None else None
