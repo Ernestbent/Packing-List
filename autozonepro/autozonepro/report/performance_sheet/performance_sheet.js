@@ -42,8 +42,9 @@ frappe.query_reports["Performance Sheet"] = {
         const summaryFields = [
             "total", "daily_avg", "total_all_4", "overall_daily_avg",
             "total_packing", "total_picking", "total_qty_picked", "total_qty_packed",
-            "total_qty_verified", "total_so_amount", "total_verified",
-            "total_billing", "total_dispatched"
+            "total_qty_verified", "total_verified", "total_billing", "total_dispatched",
+            "packing_amount", "picking_amount", "verify_amount", "billed_amount",
+            "dispatched_amount"
         ];
         const isSummaryCol = summaryFields.includes(column.fieldname);
         const isCombined   = ["total_all_4", "overall_daily_avg"].includes(column.fieldname);

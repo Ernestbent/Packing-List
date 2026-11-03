@@ -14,7 +14,7 @@ WORKFLOW_STATES = [
 	("Picking", "Picking"),
 	("Packing", "Packing"),
 	("daily_billed", "Billed"),
-	("In Transit", "In Transit"),
+	("pending_for_dispatch", "Pending for Dispatch"),
 	("daily_dispatched", "Dispatched"),
 ]
 
@@ -63,7 +63,7 @@ def get_data(filters):
 				AND IFNULL(status, '') NOT IN ('Hold', 'On Hold', 'Closed')
 				AND workflow_state IN (
 					'Pending Credit Approval', 'Approved', 'Picking',
-					'Packing', 'In Transit'
+					'Packing', 'Billed', 'In Transit'
 				)
 			GROUP BY workflow_state
 		""",
@@ -71,6 +71,20 @@ def get_data(filters):
 		as_dict=True,
 	)
 	totals_by_state = {row.workflow_state: row for row in state_totals}
+
+	# Both Billed and In Transit orders are awaiting final dispatch. This is a
+	# current queue, unlike the date-specific Billed and Dispatched throughput.
+	pending_states = ("Billed", "In Transit")
+	totals_by_state["pending_for_dispatch"] = frappe._dict(
+		order_count=sum(
+			(totals_by_state.get(state) or {}).get("order_count", 0)
+			for state in pending_states
+		),
+		order_amount=sum(
+			flt((totals_by_state.get(state) or {}).get("order_amount"))
+			for state in pending_states
+		),
+	)
 
 	## Billed is daily throughput. Include every submitted Sales Invoice posted on
 	## the selected date when it links to at least one Sales Order, regardless

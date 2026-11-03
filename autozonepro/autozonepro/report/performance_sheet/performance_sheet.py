@@ -4,23 +4,22 @@ import calendar
 
 ## Only these people should appear in the report — filter out everyone else
 ALLOWED_PERSONS = {
-    "Kenneth", "Joshua", "Ali", "Maria", "Peter", "Arthur", "Swabura", "Jovan",
+    "Kenneth", "Joshua", "Ali", "Maria", "Peter", "Arthur", "Swabura",
     "Owen", "Farhad", "Mehraj", "Salim", "Jawid", "Chris",
-    "George", "Osbert", "Moses", "Charles"
+    "Osbert", "Moses", "Charles"
 }
 
 PERSON_EMAILS = {
     "nduggaarthur@gmail.com": "Arthur",
     "namuyigaswaburah@gmail.com": "Swabura",
-    "muwanguzijovan34@gmail.com": "Jovan",
 }
 
 JUNE_ONWARD_EXCLUDED_PERSONS = {"Chris", "Owen"}
 JULY_2026_ONWARD_EXCLUDED_PERSONS = {"Osbert", "Peter"}
 OCTOBER_2026_ONWARD_EXCLUDED_PERSONS = {
-    "Jovan", "George", "Charles", "Swabura", "Swaburah"
+    "Charles", "Swabura", "Swaburah"
 }
-MAY_ONWARD_PERSONS = {"George", "Osbert"}
+MAY_ONWARD_PERSONS = {"Osbert"}
 
 ## Name overrides — genuine typos or full name mappings that title() alone cannot fix
 NAME_OVERRIDES = {
@@ -70,7 +69,11 @@ def get_columns(num_days):
     columns.append({"label": _("Total Qty Picked"),   "fieldname": "total_qty_picked",   "fieldtype": "Int", "width": 120})
     columns.append({"label": _("Total Qty Packed"),   "fieldname": "total_qty_packed",   "fieldtype": "Int", "width": 120})
     columns.append({"label": _("Total Qty Verified"), "fieldname": "total_qty_verified", "fieldtype": "Int", "width": 130})
-    columns.append({"label": _("Total Amount"),      "fieldname": "total_so_amount",   "fieldtype": "Currency", "width": 130, "precision": 0})
+    columns.append({"label": _("Packing Amount"),    "fieldname": "packing_amount",    "fieldtype": "Currency", "width": 135, "precision": 0})
+    columns.append({"label": _("Picking Amount"),    "fieldname": "picking_amount",    "fieldtype": "Currency", "width": 135, "precision": 0})
+    columns.append({"label": _("Verify Amount"),     "fieldname": "verify_amount",     "fieldtype": "Currency", "width": 135, "precision": 0})
+    columns.append({"label": _("Billed Amount"),     "fieldname": "billed_amount",     "fieldtype": "Currency", "width": 135, "precision": 0})
+    columns.append({"label": _("Dispatched Amount"), "fieldname": "dispatched_amount", "fieldtype": "Currency", "width": 155, "precision": 0})
 
     return columns
 
@@ -616,10 +619,12 @@ def get_data(month, year, num_days):
             row["total_qty_picked"] = int(picked_qty_by_person.get(person, 0)) if activity == "Picking" else None
             row["total_qty_packed"] = int(packed_qty_by_person.get(person, 0)) if activity == "Packing" else None
             row["total_qty_verified"] = int(verified_qty_by_person.get(person, 0)) if activity == "Verify" else None
-            amount_map = activity_amounts.get(activity)
-            row["total_so_amount"] = (
-                int(round(amount_map.get(person, 0))) if amount_map is not None else None
-            )
+            activity_amount = int(round(activity_amounts[activity].get(person, 0)))
+            row["packing_amount"] = activity_amount if activity == "Packing" else None
+            row["picking_amount"] = activity_amount if activity == "Picking" else None
+            row["verify_amount"] = activity_amount if activity == "Verify" else None
+            row["billed_amount"] = activity_amount if activity == "Billing" else None
+            row["dispatched_amount"] = activity_amount if activity == "Dispatch" else None
             row["total_verified"]   = total if activity == "Verify"   else None
             row["total_billing"]    = total if activity == "Billing"  else None
             row["total_dispatched"] = total if activity == "Dispatch" else None
