@@ -18,12 +18,14 @@ DELIVERY_NOTE_RECIPIENTS = (
 	{"name": "Mark", "phone": "0757001909"},
 	{"name": "Bridget", "phone": "+256 708 390020"},
 	{"name": "Justine", "phone": "+256 752 374696"},
+	{"name": "Gagan", "phone": "0706734442"},
 )
 DELIVERY_NOTE_EMAIL_RECIPIENTS = (
 	{"name": "Mark", "email": "othienobenedict8@gmail.com"},
 	{"name": "Shamba Sales 1", "email": "Sales.shamba1@onestopautoco.com"},
 	{"name": "Shamba Sales 2", "email": "Sales.shamba2@onestopautoco.com"},
 	{"name": "Service Team", "email": "Service@onestopautoco.com"},
+	{"name": "Gagan", "email": "gagan@autozonepro.org"},
 )
 
 STATUS_FIELD = "custom_remote_shipment_whatsapp_status"
